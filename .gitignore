@@ -1,0 +1,57 @@
+# ---- Python 通用 ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+*.log
+
+# 虚拟环境 / 依赖缓存
+.venv/
+venv/
+env/
+.uv/
+.venv*/
+pip-wheel-metadata/
+dist/
+build/
+
+# ---- IDE / 系统文件 ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ---- 环境配置（不要提交密钥）----
+.env
+.env.*
+!.env.example
+
+# ---- 本项目运行日志与报告 ----
+logs/
+reports/
+
+# Chainlit 运行产生的本地内容（可以视情况调整）
+.chainlit/
+frontend/.chainlit/
+
+# 前端 / 临时文件（当前 frontend 是 Python，如果以后加前端构建工具可再补充）
+frontend/__pycache__/
+frontend/logs/
+
+# ---- 模型与大文件（如果放在项目目录下）----
+models/
+*.gguf
+*.bin
+*.pt
+*.safetensors
+*.ckpt
+
+# 其他临时文件
+*.tmp
+*.bak
+*.orig
