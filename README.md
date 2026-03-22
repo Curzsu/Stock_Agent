@@ -117,16 +117,6 @@ python -m uvicorn backend.server:app --host 0.0.0.0 --port 8000
 
 打开浏览器访问 http://localhost:8000
 
-### Docker 部署（可选）
-
-```bash
-# 构建镜像
-docker build -t finex .
-
-# 运行容器
-docker run -p 8000:8000 --env-file agents/.env finex
-```
-
 ## 项目结构
 
 ```
@@ -246,10 +236,3 @@ GET /api/health
 ## 许可证
 
 本项目仅供学习和研究使用，不构成任何投资建议。股市有风险，投资需谨慎。
-
-## 致谢
-
-- [LangChain](https://github.com/langchain-ai/langchain)
-- [LangGraph](https://github.com/langchain-ai/langgraph)
-- [Baostock](http://baostock.com/)
-- [MCP](https://modelcontextprotocol.io/)
