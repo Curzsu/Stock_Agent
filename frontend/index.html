@@ -1,0 +1,1849 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FINEX | 金融分析智能体</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --black: #0a0a0a;
+      --white: #fafafa;
+      --cream: #f5f2eb;
+      --warm-bg: #f8f6f1;
+      --gold: #c9a227;
+      --gold-light: #e8d48b;
+      --gold-glow: rgba(201, 162, 39, 0.15);
+      --gray-100: #f7f7f7;
+      --gray-200: #e5e5e5;
+      --gray-300: #d4d4d4;
+      --gray-400: #a3a3a3;
+      --gray-500: #737373;
+      --gray-600: #525252;
+      --gray-700: #404040;
+      --gray-800: #262626;
+      --gray-900: #171717;
+
+      --dark-bg: #0f0f0f;
+      --dark-card: #1a1a1a;
+      --dark-border: #2a2a2a;
+      --dark-text: #e5e5e5;
+      --dark-muted: #888888;
+
+      --font-display: 'Cormorant Garamond', Georgia, serif;
+      --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+
+      --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+      --radius-sm: 6px;
+      --radius-md: 12px;
+      --radius-lg: 20px;
+      --radius-xl: 32px;
+      --radius-full: 9999px;
+    }
+
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html { font-size: 16px; scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-body);
+      color: var(--black);
+      line-height: 1.6;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ========================================
+       INTRO ANIMATION OVERLAY
+       ======================================== */
+    .intro-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--black);
+      transition: opacity 0.6s ease;
+    }
+
+    .intro-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .intro-content {
+      text-align: center;
+      color: var(--white);
+    }
+
+    .intro-logo {
+      font-family: var(--font-display);
+      font-size: clamp(4rem, 15vw, 10rem);
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      margin-bottom: 1rem;
+    }
+
+    .intro-logo .char {
+      display: inline-block;
+      opacity: 0;
+      transform: translateY(100%);
+      animation: charReveal 0.8s var(--ease-out-expo) forwards;
+    }
+
+    .intro-logo .char:nth-child(1) { animation-delay: 0.1s; }
+    .intro-logo .char:nth-child(2) { animation-delay: 0.2s; }
+    .intro-logo .char:nth-child(3) { animation-delay: 0.3s; }
+    .intro-logo .char:nth-child(4) { animation-delay: 0.4s; }
+    .intro-logo .char:nth-child(5) { animation-delay: 0.5s; }
+
+    @keyframes charReveal {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .intro-line {
+      width: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      margin: 0 auto;
+      border-radius: var(--radius-full);
+      animation: lineExpand 1s var(--ease-out-expo) 0.6s forwards;
+    }
+
+    @keyframes lineExpand {
+      to { width: 180px; }
+    }
+
+    .intro-tagline {
+      font-size: 1.125rem;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--gray-500);
+      margin-top: 1.5rem;
+      opacity: 0;
+      transform: translateY(20px);
+      animation: fadeSlideUp 0.8s var(--ease-out-expo) 0.8s forwards;
+    }
+
+    @keyframes fadeSlideUp {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .intro-progress {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      margin-top: 3rem;
+      opacity: 0;
+      animation: fadeIn 0.5s ease 1s forwards;
+    }
+
+    @keyframes fadeIn { to { opacity: 1; } }
+
+    .intro-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--gray-700);
+      transition: all 0.4s var(--ease-out-expo);
+    }
+
+    .intro-dot.active {
+      background: var(--gold);
+      transform: scale(1.3);
+      box-shadow: 0 0 12px var(--gold-glow);
+    }
+
+    /* ========================================
+       HERO SECTION (浅色背景)
+       ======================================== */
+    .hero-section {
+      min-height: 85vh;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .hero-bg {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+    }
+
+    .hero-bg::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(201, 162, 39, 0.06) 0%, transparent 50%),
+        linear-gradient(180deg, #fdfcfa 0%, #f9f7f3 100%);
+    }
+
+    .hero-bg::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0, 0, 0, 0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 0, 0, 0.015) 1px, transparent 1px);
+      background-size: 80px 80px;
+      mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 10%, transparent 60%);
+      -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 10%, transparent 60%);
+    }
+
+    .floating-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.3;
+      animation: float 25s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    .orb-1 {
+      width: 350px;
+      height: 350px;
+      background: radial-gradient(circle, rgba(201, 162, 39, 0.12) 0%, transparent 70%);
+      top: 5%;
+      left: 8%;
+    }
+
+    .orb-2 {
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, rgba(201, 162, 39, 0.1) 0%, transparent 70%);
+      top: 40%;
+      right: 10%;
+      animation-delay: -10s;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0); }
+      33% { transform: translate(20px, -20px); }
+      66% { transform: translate(-15px, 15px); }
+    }
+
+    .cursor-glow {
+      position: fixed;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(201, 162, 39, 0.05) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 1;
+      transform: translate(-50%, -50%);
+    }
+
+    .noise-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.012;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    }
+
+    .hero-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 2rem;
+      width: 100%;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      z-index: 2;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.5rem 0;
+      opacity: 0;
+      animation: fadeSlideDown 0.8s var(--ease-out-expo) forwards;
+    }
+
+    @keyframes fadeSlideDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .header-left { display: flex; align-items: center; gap: 2rem; }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(0, 0, 0, 0.04);
+      border-radius: var(--radius-full);
+      transition: all 0.3s ease;
+    }
+
+    .logo:hover {
+      background: rgba(255, 255, 255, 1);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    }
+
+    .logo-mark {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--gold);
+    }
+
+    .logo-text {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+    }
+
+    .tagline {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--gray-500);
+      padding-left: 1.5rem;
+      border-left: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    .header-right { display: flex; align-items: center; gap: 1.5rem; }
+
+    .date-display {
+      font-family: var(--font-display);
+      font-size: 0.875rem;
+      font-style: italic;
+      color: var(--gray-500);
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: linear-gradient(135deg, var(--gold-glow), transparent);
+      border: 1px solid rgba(201, 162, 39, 0.2);
+      border-radius: var(--radius-full);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--gold);
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.4); }
+      50% { opacity: 0.6; box-shadow: 0 0 0 8px rgba(201, 162, 39, 0); }
+    }
+
+    /* Hero Content */
+    .hero-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 3rem 0 4rem;
+    }
+
+    .hero-title {
+      font-family: var(--font-display);
+      font-size: clamp(2.5rem, 7vw, 5rem);
+      font-weight: 400;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 1.25rem;
+    }
+
+    .title-line {
+      display: block;
+      opacity: 0;
+      transform: translateY(80px);
+      animation: titleReveal 1s var(--ease-out-expo) forwards;
+    }
+
+    .title-line:nth-child(1) { animation-delay: 2.7s; }
+    .title-line:nth-child(2) { animation-delay: 2.9s; }
+
+    @keyframes titleReveal {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .title-line.accent {
+      font-weight: 700;
+      color: var(--gold);
+    }
+
+    .hero-subtitle {
+      font-size: 1.125rem;
+      color: var(--gray-600);
+      max-width: 500px;
+      font-weight: 300;
+      opacity: 0;
+      transform: translateY(30px);
+      animation: fadeSlideUp 0.8s var(--ease-out-expo) 3.1s forwards;
+    }
+
+    /* Search Bar */
+    .search-container {
+      max-width: 680px;
+      width: 100%;
+      margin-top: 2.5rem;
+      opacity: 0;
+      transform: translateY(30px);
+      animation: fadeSlideUp 0.8s var(--ease-out-expo) 3.3s forwards;
+    }
+
+    .search-wrapper {
+      display: flex;
+      background: rgba(255, 255, 255, 0.85);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+      transition: all 0.4s var(--ease-out-expo);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.03);
+    }
+
+    .search-wrapper:focus-within {
+      border-color: rgba(201, 162, 39, 0.4);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.06), 0 0 0 4px rgba(201, 162, 39, 0.08);
+      transform: translateY(-2px);
+    }
+
+    .search-input {
+      flex: 1;
+      padding: 1.25rem 1.5rem;
+      border: none;
+      background: transparent;
+      font-family: var(--font-body);
+      font-size: 1rem;
+      color: var(--black);
+      outline: none;
+    }
+
+    .search-input::placeholder { color: var(--gray-400); }
+
+    .search-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1.25rem 2rem;
+      margin: 8px;
+      background: var(--black);
+      border: none;
+      border-radius: var(--radius-lg);
+      color: var(--white);
+      font-family: var(--font-body);
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.4s var(--ease-out-expo);
+    }
+
+    .search-btn::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: var(--gold);
+      transform: translateX(-100%);
+      transition: transform 0.4s var(--ease-out-expo);
+      border-radius: var(--radius-lg);
+    }
+
+    .search-btn:hover::before { transform: translateX(0); }
+    .search-btn span { position: relative; z-index: 1; }
+    .search-btn:hover { color: var(--black); }
+
+    .btn-arrow { transition: transform 0.3s var(--ease-out-expo); }
+    .search-btn:hover .btn-arrow { transform: translateX(4px); }
+
+    .search-hints {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 1.25rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      opacity: 0;
+      animation: fadeSlideUp 0.6s var(--ease-out-expo) 3.5s forwards;
+    }
+
+    .hint-label {
+      font-size: 0.75rem;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .hint-tag {
+      padding: 0.5rem 1rem;
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: var(--radius-full);
+      font-family: var(--font-body);
+      font-size: 0.8125rem;
+      color: var(--gray-600);
+      cursor: pointer;
+      transition: all 0.3s var(--ease-out-expo);
+    }
+
+    .hint-tag:hover {
+      border-color: var(--black);
+      background: var(--black);
+      color: var(--white);
+    }
+
+    /* ========================================
+       HISTORY SECTION (暖色背景块)
+       ======================================== */
+    .history-section {
+      background: linear-gradient(180deg, #9a938a 0%, #7a756e 100%);
+      position: relative;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(60px);
+      transition: opacity 1s var(--ease-out-expo), transform 1s var(--ease-out-expo);
+    }
+
+    .history-section.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .history-section::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(201, 162, 39, 0.3), transparent);
+    }
+
+    .history-section::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(circle at 20% 50%, rgba(201, 162, 39, 0.03) 0%, transparent 40%),
+        radial-gradient(circle at 80% 30%, rgba(201, 162, 39, 0.02) 0%, transparent 35%);
+      pointer-events: none;
+    }
+
+    .history-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 5rem 2rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2.5rem;
+      opacity: 0;
+      animation: fadeSlideUp 0.6s var(--ease-out-expo) 3.7s forwards;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--white);
+      letter-spacing: 0.02em;
+    }
+
+    .section-count {
+      font-size: 0.875rem;
+      color: rgba(255, 255, 255, 0.6);
+      padding: 0.5rem 1rem;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: var(--radius-full);
+    }
+
+    .history-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .history-card {
+      background: rgba(255, 255, 255, 0.95);
+      border: none;
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      opacity: 0;
+      transition: all 0.4s var(--ease-out-expo);
+      animation: cardReveal 0.6s var(--ease-out-expo) forwards;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    }
+
+    .history-card:nth-child(1) { animation-delay: 3.8s; }
+    .history-card:nth-child(2) { animation-delay: 3.9s; }
+    .history-card:nth-child(3) { animation-delay: 4.0s; }
+
+    @keyframes cardReveal {
+      to { opacity: 1; }
+    }
+
+    .history-card::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 5px;
+      background: var(--gold);
+      transform: scaleY(0);
+      transition: transform 0.4s var(--ease-out-expo);
+      transform-origin: top;
+      border-radius: 0 4px 4px 0;
+    }
+
+    .history-card:hover {
+      transform: translateY(-8px) scale(1.02);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.25);
+      background: var(--white);
+    }
+
+    .history-card:hover::before { transform: scaleY(1); }
+
+    .history-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1rem;
+    }
+
+    .history-card-title {
+      font-family: var(--font-display);
+      font-size: 1.375rem;
+      font-weight: 600;
+      transition: color 0.3s ease;
+      color: var(--black);
+    }
+
+    .history-card:hover .history-card-title { color: var(--gold); }
+
+    .history-card-code {
+      font-size: 0.8125rem;
+      color: var(--gold);
+      font-weight: 600;
+      padding: 0.375rem 0.75rem;
+      background: rgba(201, 162, 39, 0.12);
+      border-radius: var(--radius-sm);
+    }
+
+    .history-card-date {
+      font-size: 0.8125rem;
+      color: var(--gray-500);
+      font-weight: 500;
+    }
+
+    .history-card-excerpt {
+      font-size: 1rem;
+      color: var(--gray-600);
+      line-height: 1.7;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* ========================================
+       ANALYSIS SECTION (深色背景)
+       ======================================== */
+    .analysis-section {
+      min-height: 100vh;
+      background: var(--dark-bg);
+      position: relative;
+      display: none;
+    }
+
+    .analysis-section.active {
+      display: block;
+      animation: sectionSlideUp 0.8s var(--ease-out-expo) forwards;
+    }
+
+    @keyframes sectionSlideUp {
+      from { opacity: 0; transform: translateY(100px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .analysis-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 4rem 2rem;
+      color: var(--dark-text);
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 3rem;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid var(--dark-border);
+    }
+
+    .progress-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .progress-label {
+      font-size: 0.6875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--dark-muted);
+    }
+
+    .progress-title {
+      font-family: var(--font-display);
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      font-weight: 600;
+      line-height: 1;
+      color: var(--white);
+    }
+
+    .progress-title span { color: var(--gold); }
+
+    .progress-meta {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .progress-time {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      font-weight: 300;
+      color: var(--dark-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-status-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.625rem 1.25rem;
+      background: rgba(201, 162, 39, 0.1);
+      border: 1px solid rgba(201, 162, 39, 0.3);
+      border-radius: var(--radius-full);
+      font-size: 0.6875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--gold);
+    }
+
+    .pulse-ring {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--gold);
+      position: relative;
+    }
+
+    .pulse-ring::before {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 1px solid var(--gold);
+      animation: ringPulse 1.5s ease-out infinite;
+    }
+
+    @keyframes ringPulse {
+      0% { transform: scale(0.8); opacity: 1; }
+      100% { transform: scale(2); opacity: 0; }
+    }
+
+    /* Agent Cards */
+    .agents-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 1rem;
+    }
+
+    .agent-card {
+      background: var(--dark-card);
+      border: 1px solid var(--dark-border);
+      border-radius: var(--radius-lg);
+      padding: 1.75rem 1.25rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(30px) scale(0.95);
+      transition: all 0.5s var(--ease-out-expo);
+    }
+
+    .analysis-section.active .agent-card {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    .analysis-section.active .agent-card:nth-child(1) { transition-delay: 0.2s; }
+    .analysis-section.active .agent-card:nth-child(2) { transition-delay: 0.3s; }
+    .analysis-section.active .agent-card:nth-child(3) { transition-delay: 0.4s; }
+    .analysis-section.active .agent-card:nth-child(4) { transition-delay: 0.5s; }
+    .analysis-section.active .agent-card:nth-child(5) { transition-delay: 0.6s; }
+
+    .agent-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(201, 162, 39, 0.08) 0%, transparent 50%);
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    .agent-card.active {
+      border-color: var(--gold);
+      transform: translateY(-4px) scale(1.02);
+      box-shadow: 0 20px 40px -12px rgba(201, 162, 39, 0.2);
+    }
+
+    .agent-card.active::before { opacity: 1; }
+
+    .agent-card.complete {
+      border-color: rgba(201, 162, 39, 0.4);
+      background: linear-gradient(180deg, rgba(201, 162, 39, 0.05) 0%, var(--dark-card) 100%);
+    }
+
+    .agent-number {
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--dark-muted);
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.25rem 0.5rem;
+      border-radius: var(--radius-sm);
+    }
+
+    .agent-icon-wrapper {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: var(--radius-md);
+      transition: all 0.4s var(--ease-out-expo);
+    }
+
+    .agent-card.active .agent-icon-wrapper {
+      background: var(--gold);
+      transform: scale(1.1) rotate(-3deg);
+      box-shadow: 0 8px 20px -8px rgba(201, 162, 39, 0.5);
+    }
+
+    .agent-card.complete .agent-icon-wrapper { background: var(--gold); }
+
+    .agent-icon { font-size: 1.5rem; }
+
+    .agent-card.active .agent-icon { animation: iconBounce 0.6s var(--ease-out-expo); }
+
+    @keyframes iconBounce {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+    }
+
+    .agent-card.complete .agent-icon { filter: grayscale(1) brightness(10); }
+
+    .agent-info { position: relative; z-index: 1; }
+
+    .agent-name {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+      color: var(--white);
+    }
+
+    .agent-desc {
+      font-size: 0.6875rem;
+      color: var(--dark-muted);
+      line-height: 1.5;
+      margin-bottom: 1rem;
+    }
+
+    .agent-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.375rem 0.75rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: var(--radius-full);
+      font-size: 0.625rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--dark-muted);
+      transition: all 0.3s ease;
+    }
+
+    .agent-card.active .agent-status {
+      background: var(--gold);
+      color: var(--black);
+    }
+
+    .agent-card.complete .agent-status {
+      background: rgba(201, 162, 39, 0.15);
+      color: var(--gold);
+      border: 1px solid rgba(201, 162, 39, 0.3);
+    }
+
+    .status-indicator-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .agent-card.active .status-indicator-dot { animation: dotPulse 1s ease-in-out infinite; }
+
+    @keyframes dotPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* Back Button */
+    .back-btn {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 1rem 1.5rem;
+      background: var(--dark-card);
+      border: 1px solid var(--dark-border);
+      border-radius: var(--radius-full);
+      color: var(--dark-text);
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      opacity: 0;
+      transform: translateY(20px);
+    }
+
+    .analysis-section.active .back-btn {
+      opacity: 1;
+      transform: translateY(0);
+      transition-delay: 0.8s;
+    }
+
+    .back-btn:hover {
+      background: var(--gold);
+      color: var(--black);
+      border-color: var(--gold);
+    }
+
+    /* ========================================
+       REPORT SECTION
+       ======================================== */
+    .report-section {
+      min-height: 100vh;
+      background: var(--warm-bg);
+      display: none;
+    }
+
+    .report-section.active {
+      display: block;
+      animation: sectionSlideUp 0.8s var(--ease-out-expo) forwards;
+    }
+
+    .report-container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 3rem 2rem;
+    }
+
+    .report-header {
+      text-align: center;
+      margin-bottom: 3rem;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid var(--gray-200);
+    }
+
+    .report-title {
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 600;
+      color: var(--black);
+      margin-bottom: 0.5rem;
+    }
+
+    .report-subtitle {
+      font-size: 1rem;
+      color: var(--gray-500);
+    }
+
+    .report-meta {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin-top: 1rem;
+    }
+
+    .report-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      color: var(--gray-600);
+    }
+
+    .report-meta-item span:first-child {
+      color: var(--gold);
+      font-weight: 600;
+    }
+
+    .report-content {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 2.5rem;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+    }
+
+    .report-section-title {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--black);
+      margin: 2rem 0 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--gold);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .report-section-title:first-child {
+      margin-top: 0;
+    }
+
+    .report-text {
+      font-size: 1rem;
+      line-height: 1.8;
+      color: var(--gray-700);
+      white-space: pre-wrap;
+    }
+
+    .report-actions {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 3rem;
+    }
+
+    .report-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 1rem 2rem;
+      border-radius: var(--radius-full);
+      font-family: var(--font-body);
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: all 0.3s var(--ease-out-expo);
+    }
+
+    .report-btn-primary {
+      background: var(--black);
+      color: var(--white);
+      border: none;
+    }
+
+    .report-btn-primary:hover {
+      background: var(--gold);
+      color: var(--black);
+    }
+
+    .report-btn-secondary {
+      background: transparent;
+      color: var(--gray-700);
+      border: 1px solid var(--gray-300);
+    }
+
+    .report-btn-secondary:hover {
+      border-color: var(--black);
+      color: var(--black);
+    }
+
+    .report-path-notice {
+      margin-top: 2rem;
+      padding: 1rem 1.5rem;
+      background: linear-gradient(135deg, rgba(201, 162, 39, 0.08), rgba(201, 162, 39, 0.02));
+      border: 1px solid rgba(201, 162, 39, 0.2);
+      border-radius: var(--radius-md);
+      text-align: center;
+    }
+
+    .report-path-notice-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--gold);
+      margin-bottom: 0.5rem;
+    }
+
+    .report-path-notice-path {
+      font-family: monospace;
+      font-size: 0.875rem;
+      color: var(--gray-700);
+      word-break: break-all;
+    }
+
+    /* ========================================
+       RESPONSIVE
+       ======================================== */
+    @media (max-width: 1100px) {
+      .agents-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    @media (max-width: 768px) {
+      .agents-grid { grid-template-columns: repeat(2, 1fr); }
+      .agent-card:last-child { grid-column: span 2; }
+
+      .progress-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1.25rem;
+      }
+
+      .header {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: flex-start;
+      }
+
+      .header-left {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+      }
+
+      .tagline {
+        padding-left: 0;
+        border-left: none;
+      }
+    }
+
+    @media (max-width: 500px) {
+      .agents-grid { grid-template-columns: 1fr; }
+      .agent-card:last-child { grid-column: span 1; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Intro Overlay -->
+  <div class="intro-overlay" id="introOverlay">
+    <div class="intro-content">
+      <div class="intro-logo">
+        <span class="char">F</span><span class="char">I</span><span class="char">N</span><span class="char">E</span><span class="char">X</span>
+      </div>
+      <div class="intro-line"></div>
+      <div class="intro-tagline">金融分析智能体系统</div>
+      <div class="intro-progress">
+        <div class="intro-dot"></div>
+        <div class="intro-dot"></div>
+        <div class="intro-dot"></div>
+        <div class="intro-dot"></div>
+        <div class="intro-dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="noise-overlay"></div>
+  <div class="cursor-glow" id="cursorGlow"></div>
+
+  <!-- HERO SECTION (浅色) -->
+  <section class="hero-section" id="heroSection">
+    <div class="hero-bg">
+      <div class="floating-orb orb-1"></div>
+      <div class="floating-orb orb-2"></div>
+    </div>
+
+    <div class="hero-container">
+      <header class="header">
+        <div class="header-left">
+          <div class="logo">
+            <span class="logo-mark">FX</span>
+            <span class="logo-text">FINEX</span>
+          </div>
+          <span class="tagline">金融分析智能体系统</span>
+        </div>
+        <div class="header-right">
+          <span class="date-display" id="currentDate"></span>
+          <div class="status-indicator">
+            <span class="status-dot"></span>
+            <span class="status-text">系统就绪</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="hero-content">
+        <h1 class="hero-title">
+          <span class="title-line">智能</span>
+          <span class="title-line accent">金融分析</span>
+        </h1>
+        <p class="hero-subtitle">输入股票代码或公司名称，获取多维度深度分析报告</p>
+
+        <div class="search-container">
+          <div class="search-wrapper">
+            <input type="text" class="search-input" id="stockInput" placeholder="输入股票代码或公司名称..." autocomplete="off">
+            <button class="search-btn" id="analyzeBtn">
+              <span class="btn-text">分析</span>
+              <span class="btn-arrow">→</span>
+            </button>
+          </div>
+          <div class="search-hints">
+            <span class="hint-label">示例：</span>
+            <button class="hint-tag" data-value="茅台">茅台</button>
+            <button class="hint-tag" data-value="600519">600519</button>
+            <button class="hint-tag" data-value="比亚迪">比亚迪</button>
+            <button class="hint-tag" data-value="宁德时代">宁德时代</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTORY SECTION (暖色背景块) -->
+  <section class="history-section" id="historySection">
+    <div class="history-container">
+      <div class="section-header">
+        <h2 class="section-title">历史报告</h2>
+        <span class="section-count">3 份报告</span>
+      </div>
+      <div class="history-grid">
+        <div class="history-card">
+          <div class="history-card-header">
+            <div>
+              <div class="history-card-title">贵州茅台</div>
+              <div class="history-card-code">600519</div>
+            </div>
+            <div class="history-card-date">2025-08-10</div>
+          </div>
+          <div class="history-card-excerpt">作为中国高端白酒行业绝对龙头，展现出卓越的盈利能力、财务稳健性和市场竞争力...</div>
+        </div>
+        <div class="history-card">
+          <div class="history-card-header">
+            <div>
+              <div class="history-card-title">比亚迪</div>
+              <div class="history-card-code">002594</div>
+            </div>
+            <div class="history-card-date">2025-08-09</div>
+          </div>
+          <div class="history-card-excerpt">新能源汽车行业领军企业，全球销量持续增长，技术壁垒显著...</div>
+        </div>
+        <div class="history-card">
+          <div class="history-card-header">
+            <div>
+              <div class="history-card-title">宁德时代</div>
+              <div class="history-card-code">300750</div>
+            </div>
+            <div class="history-card-date">2025-08-08</div>
+          </div>
+          <div class="history-card-excerpt">全球动力电池龙头，市占率稳居第一，研发投入持续加大...</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ANALYSIS SECTION (深色) -->
+  <section class="analysis-section" id="analysisSection">
+    <div class="analysis-container">
+      <div class="progress-header">
+        <div class="progress-title-group">
+          <span class="progress-label">ANALYSIS IN PROGRESS</span>
+          <h2 class="progress-title">正在分析 <span id="analyzingStock"></span></h2>
+        </div>
+        <div class="progress-meta">
+          <span class="progress-time" id="elapsedTime">00:00</span>
+          <div class="progress-status-badge">
+            <div class="pulse-ring"></div>
+            <span id="statusText">处理中</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="agents-grid">
+        <div class="agent-card" data-agent="fundamental">
+          <span class="agent-number">01</span>
+          <div class="agent-icon-wrapper"><span class="agent-icon">📊</span></div>
+          <div class="agent-info">
+            <div class="agent-name">基本面分析</div>
+            <div class="agent-desc">财务状况<br>盈利能力<br>行业地位</div>
+            <div class="agent-status">
+              <span class="status-indicator-dot"></span>
+              <span class="status-text">等待中</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="agent-card" data-agent="technical">
+          <span class="agent-number">02</span>
+          <div class="agent-icon-wrapper"><span class="agent-icon">📈</span></div>
+          <div class="agent-info">
+            <div class="agent-name">技术分析</div>
+            <div class="agent-desc">价格趋势<br>交易量<br>技术指标</div>
+            <div class="agent-status">
+              <span class="status-indicator-dot"></span>
+              <span class="status-text">等待中</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="agent-card" data-agent="value">
+          <span class="agent-number">03</span>
+          <div class="agent-icon-wrapper"><span class="agent-icon">💰</span></div>
+          <div class="agent-info">
+            <div class="agent-name">估值分析</div>
+            <div class="agent-desc">市盈率<br>市净率<br>内在价值</div>
+            <div class="agent-status">
+              <span class="status-indicator-dot"></span>
+              <span class="status-text">等待中</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="agent-card" data-agent="news">
+          <span class="agent-number">04</span>
+          <div class="agent-icon-wrapper"><span class="agent-icon">📰</span></div>
+          <div class="agent-info">
+            <div class="agent-name">新闻分析</div>
+            <div class="agent-desc">市场情绪<br>重要事件<br>风险评估</div>
+            <div class="agent-status">
+              <span class="status-indicator-dot"></span>
+              <span class="status-text">等待中</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="agent-card" data-agent="summary">
+          <span class="agent-number">05</span>
+          <div class="agent-icon-wrapper"><span class="agent-icon">🤖</span></div>
+          <div class="agent-info">
+            <div class="agent-name">智能汇总</div>
+            <div class="agent-desc">综合研判<br>投资建议<br>风险提示</div>
+            <div class="agent-status">
+              <span class="status-indicator-dot"></span>
+              <span class="status-text">等待中</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <button class="back-btn" id="backBtn">
+      <span>←</span>
+      <span>返回首页</span>
+    </button>
+  </section>
+
+  <!-- REPORT SECTION -->
+  <section class="report-section" id="reportSection">
+    <div class="report-container">
+      <div class="report-header">
+        <h1 class="report-title" id="reportTitle">分析报告</h1>
+        <p class="report-subtitle">FINEX 金融分析智能体</p>
+        <div class="report-meta">
+          <div class="report-meta-item">
+            <span>股票代码</span>
+            <span id="reportCode">-</span>
+          </div>
+          <div class="report-meta-item">
+            <span>分析日期</span>
+            <span id="reportDate">-</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="report-content" id="reportContent">
+        <!-- Dynamic content will be inserted here -->
+      </div>
+
+      <div class="report-actions">
+        <button class="report-btn report-btn-secondary" id="backToHomeBtn">
+          <span>←</span>
+          <span>返回首页</span>
+        </button>
+        <button class="report-btn report-btn-primary" id="newAnalysisBtn">
+          <span>新分析</span>
+          <span>→</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    // Intro Animation
+    const introOverlay = document.getElementById('introOverlay');
+    const introDots = document.querySelectorAll('.intro-dot');
+
+    let dotIndex = 0;
+    const dotInterval = setInterval(() => {
+      if (dotIndex < introDots.length) {
+        introDots[dotIndex].classList.add('active');
+        dotIndex++;
+      } else {
+        clearInterval(dotInterval);
+      }
+    }, 200);
+
+    setTimeout(() => introOverlay.classList.add('hidden'), 2500);
+
+    // History section scroll-triggered entrance animation
+    const historySection = document.getElementById('historySection');
+    const observerOptions = {
+      root: null,
+      rootMargin: '0px',
+      threshold: 0.1
+    };
+
+    const historyObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          historyObserver.unobserve(entry.target);
+        }
+      });
+    }, observerOptions);
+
+    historyObserver.observe(historySection);
+
+    // Cursor glow
+    const cursorGlow = document.getElementById('cursorGlow');
+    let mouseX = 0, mouseY = 0, glowX = 0, glowY = 0;
+
+    document.addEventListener('mousemove', (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+
+    function animateCursor() {
+      glowX += (mouseX - glowX) * 0.08;
+      glowY += (mouseY - glowY) * 0.08;
+      cursorGlow.style.left = glowX + 'px';
+      cursorGlow.style.top = glowY + 'px';
+      requestAnimationFrame(animateCursor);
+    }
+    animateCursor();
+
+    // Date display
+    document.getElementById('currentDate').textContent = new Date().toLocaleDateString('zh-CN', {
+      year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
+    });
+
+    // Hint tags
+    document.querySelectorAll('.hint-tag').forEach(tag => {
+      tag.addEventListener('click', () => {
+        document.getElementById('stockInput').value = tag.dataset.value;
+        document.getElementById('stockInput').focus();
+      });
+    });
+
+    // Analysis
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const stockInput = document.getElementById('stockInput');
+    const heroSection = document.getElementById('heroSection');
+    const analysisSection = document.getElementById('analysisSection');
+
+    analyzeBtn.addEventListener('click', startAnalysis);
+    stockInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') startAnalysis();
+    });
+
+    document.getElementById('backBtn').addEventListener('click', () => {
+      analysisSection.classList.remove('active');
+
+      // Clean up report button if exists
+      const reportBtn = document.getElementById('goToReportBtn');
+      if (reportBtn) reportBtn.remove();
+      currentResult = null;
+
+      // 快速显示，跳过动画延迟
+      heroSection.style.display = 'flex';
+      heroSection.style.opacity = '1';
+      heroSection.style.transition = 'opacity 0.3s ease';
+
+      historySection.style.display = 'block';
+      historySection.style.opacity = '1';
+      historySection.classList.add('visible');
+
+      // 强制立即显示所有动画元素
+      document.querySelectorAll('.title-line, .hero-subtitle, .search-container, .search-hints, .section-header, .history-card').forEach(el => {
+        el.style.animationDelay = '0s';
+        el.style.opacity = '1';
+        el.style.transform = 'none';
+      });
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    let elapsedInterval = null;
+    let seconds = 0;
+    let currentAnalysisId = null;
+
+    // API Configuration
+    const API_BASE = 'http://localhost:8000/api';
+
+    // Demo mode flag - set to false when backend is running
+    const DEMO_MODE = false;
+
+    function startAnalysis() {
+      const input = stockInput.value.trim();
+      if (!input) return;
+
+      // Clean up previous analysis state
+      currentResult = null;
+      const oldReportBtn = document.getElementById('goToReportBtn');
+      if (oldReportBtn) oldReportBtn.remove();
+
+      heroSection.style.transition = 'opacity 0.4s ease';
+      heroSection.style.opacity = '0';
+      historySection.style.transition = 'opacity 0.4s ease';
+      historySection.style.opacity = '0';
+
+      setTimeout(() => {
+        heroSection.style.display = 'none';
+        historySection.style.display = 'none';
+        analysisSection.classList.add('active');
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      }, 400);
+
+      document.getElementById('analyzingStock').textContent = input;
+
+      document.querySelectorAll('.agent-card').forEach(card => {
+        card.classList.remove('active', 'complete');
+        card.querySelector('.status-text').textContent = '等待中';
+      });
+
+      document.getElementById('statusText').textContent = '处理中';
+
+      seconds = 0;
+      updateTimer();
+      elapsedInterval = setInterval(updateTimer, 1000);
+
+      if (DEMO_MODE) {
+        // Demo simulation mode
+        runDemoSimulation();
+      } else {
+        // Real API mode
+        startRealAnalysis(input);
+      }
+    }
+
+    async function startRealAnalysis(query) {
+      try {
+        // Start analysis
+        const response = await fetch(`${API_BASE}/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+
+        const data = await response.json();
+        currentAnalysisId = data.analysis_id;
+
+        // Poll for status updates
+        pollAnalysisStatus();
+
+      } catch (error) {
+        console.error('Failed to start analysis:', error);
+        document.getElementById('statusText').textContent = '连接失败';
+        // Fall back to demo mode
+        runDemoSimulation();
+      }
+    }
+
+    async function pollAnalysisStatus() {
+      if (!currentAnalysisId) return;
+
+      try {
+        const response = await fetch(`${API_BASE}/status/${currentAnalysisId}`);
+        const status = await response.json();
+
+        // Update UI based on progress
+        updateAgentCards(status.progress);
+
+        if (status.status === 'completed') {
+          // Fetch and display results
+          const resultResponse = await fetch(`${API_BASE}/result/${currentAnalysisId}`);
+          const result = await resultResponse.json();
+          displayResults(result);
+          clearInterval(elapsedInterval);
+          document.getElementById('statusText').textContent = '已完成';
+
+        } else if (status.status === 'error') {
+          clearInterval(elapsedInterval);
+          document.getElementById('statusText').textContent = '分析出错';
+
+        } else if (status.status === 'running') {
+          // Continue polling
+          setTimeout(pollAnalysisStatus, 2000);
+        }
+
+      } catch (error) {
+        console.error('Failed to poll status:', error);
+        setTimeout(pollAnalysisStatus, 2000);
+      }
+    }
+
+    function updateAgentCards(progress) {
+      const statusMap = {
+        'waiting': '等待中',
+        'running': '分析中',
+        'completed': '已完成'
+      };
+
+      Object.entries(progress).forEach(([agent, status]) => {
+        const card = document.querySelector(`[data-agent="${agent}"]`);
+        if (card) {
+          // Only update if new status is "higher" than current (waiting < running < completed)
+          // This prevents overwriting "completed" with "running"
+          const currentStatus = card.querySelector('.status-text').textContent;
+          const statusPriority = { '等待中': 0, '分析中': 1, '已完成': 2 };
+          const newPriority = statusPriority[statusMap[status]] || 0;
+          const currentPriority = statusPriority[currentStatus] || 0;
+
+          if (newPriority >= currentPriority) {
+            card.classList.remove('active', 'complete');
+            if (status === 'running') {
+              card.classList.add('active');
+            } else if (status === 'completed') {
+              card.classList.add('complete');
+            }
+            card.querySelector('.status-text').textContent = statusMap[status] || status;
+          }
+        }
+      });
+    }
+
+    let currentResult = null;
+
+    function displayResults(result) {
+      console.log('Analysis result:', result);
+      currentResult = result;
+
+      // Update status
+      document.getElementById('statusText').textContent = '分析完成';
+
+      // Show "Go to Report" button
+      showReportButton();
+    }
+
+    function showReportButton() {
+      // Check if button already exists
+      let reportBtn = document.getElementById('goToReportBtn');
+      if (!reportBtn) {
+        reportBtn = document.createElement('button');
+        reportBtn.id = 'goToReportBtn';
+        reportBtn.className = 'report-btn report-btn-primary';
+        reportBtn.style.cssText = 'position: fixed; bottom: 2rem; right: 2rem; opacity: 0; transform: translateY(20px); transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);';
+        reportBtn.innerHTML = '<span>查看报告</span><span>→</span>';
+        reportBtn.onclick = goToReport;
+        document.body.appendChild(reportBtn);
+
+        // Trigger animation
+        setTimeout(() => {
+          reportBtn.style.opacity = '1';
+          reportBtn.style.transform = 'translateY(0)';
+        }, 100);
+      }
+    }
+
+    function goToReport() {
+      if (!currentResult) return;
+
+      // Remove the button
+      const reportBtn = document.getElementById('goToReportBtn');
+      if (reportBtn) reportBtn.remove();
+
+      // Hide analysis section
+      analysisSection.classList.remove('active');
+
+      // Show report section
+      const reportSection = document.getElementById('reportSection');
+      reportSection.classList.add('active');
+
+      // Update report header
+      document.getElementById('reportTitle').textContent = currentResult.company_name || '分析报告';
+      document.getElementById('reportCode').textContent = currentResult.stock_code || '-';
+      document.getElementById('reportDate').textContent = currentResult.analysis_date || '-';
+
+      // Build report content
+      const reportContent = document.getElementById('reportContent');
+      let html = '';
+
+      if (currentResult.fundamental_analysis) {
+        html += `
+          <h2 class="report-section-title">📊 基本面分析</h2>
+          <div class="report-text">${currentResult.fundamental_analysis}</div>
+        `;
+      }
+
+      if (currentResult.technical_analysis) {
+        html += `
+          <h2 class="report-section-title">📈 技术分析</h2>
+          <div class="report-text">${currentResult.technical_analysis}</div>
+        `;
+      }
+
+      if (currentResult.value_analysis) {
+        html += `
+          <h2 class="report-section-title">💰 估值分析</h2>
+          <div class="report-text">${currentResult.value_analysis}</div>
+        `;
+      }
+
+      if (currentResult.news_analysis) {
+        html += `
+          <h2 class="report-section-title">📰 新闻分析</h2>
+          <div class="report-text">${currentResult.news_analysis}</div>
+        `;
+      }
+
+      if (currentResult.final_report) {
+        html += `
+          <h2 class="report-section-title">🤖 智能汇总</h2>
+          <div class="report-text">${currentResult.final_report}</div>
+        `;
+      }
+
+      // Add report path notice
+      if (currentResult.report_path) {
+        html += `
+          <div class="report-path-notice">
+            <div class="report-path-notice-label">📄 报告已保存至本地</div>
+            <div class="report-path-notice-path">${currentResult.report_path}</div>
+          </div>
+        `;
+      }
+
+      reportContent.innerHTML = html;
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+
+    function runDemoSimulation() {
+      const agents = ['fundamental', 'technical', 'value', 'news', 'summary'];
+      let index = 0;
+
+      const interval = setInterval(() => {
+        if (index < agents.length) {
+          const card = document.querySelector(`[data-agent="${agents[index]}"]`);
+
+          if (index > 0) {
+            const prevCard = document.querySelector(`[data-agent="${agents[index-1]}"]`);
+            prevCard.classList.remove('active');
+            prevCard.classList.add('complete');
+            prevCard.querySelector('.status-text').textContent = '已完成';
+          }
+
+          card.classList.add('active');
+          card.querySelector('.status-text').textContent = '分析中';
+          index++;
+        } else {
+          clearInterval(interval);
+          clearInterval(elapsedInterval);
+
+          const lastCard = document.querySelector('[data-agent="summary"]');
+          lastCard.classList.remove('active');
+          lastCard.classList.add('complete');
+          lastCard.querySelector('.status-text').textContent = '已完成';
+
+          document.getElementById('statusText').textContent = '已完成';
+        }
+      }, 2000);
+    }
+
+    function updateTimer() {
+      seconds++;
+      const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+      const secs = (seconds % 60).toString().padStart(2, '0');
+      document.getElementById('elapsedTime').textContent = `${mins}:${secs}`;
+    }
+
+    // Report page buttons
+    document.getElementById('backToHomeBtn').addEventListener('click', () => {
+      const reportSection = document.getElementById('reportSection');
+      reportSection.classList.remove('active');
+
+      heroSection.style.display = 'flex';
+      heroSection.style.opacity = '1';
+      historySection.style.display = 'block';
+      historySection.style.opacity = '1';
+      historySection.classList.add('visible');
+
+      document.querySelectorAll('.title-line, .hero-subtitle, .search-container, .search-hints, .section-header, .history-card').forEach(el => {
+        el.style.animationDelay = '0s';
+        el.style.opacity = '1';
+        el.style.transform = 'none';
+      });
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    document.getElementById('newAnalysisBtn').addEventListener('click', () => {
+      const reportSection = document.getElementById('reportSection');
+      reportSection.classList.remove('active');
+
+      heroSection.style.display = 'flex';
+      heroSection.style.opacity = '1';
+      historySection.style.display = 'block';
+      historySection.style.opacity = '1';
+      historySection.classList.add('visible');
+
+      document.querySelectorAll('.title-line, .hero-subtitle, .search-container, .search-hints, .section-header, .history-card').forEach(el => {
+        el.style.animationDelay = '0s';
+        el.style.opacity = '1';
+        el.style.transform = 'none';
+      });
+
+      stockInput.value = '';
+      stockInput.focus();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  </script>
+</body>
+</html>
