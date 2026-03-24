@@ -43,6 +43,15 @@
       --radius-lg: 20px;
       --radius-xl: 32px;
       --radius-full: 9999px;
+
+      /* 液态玻璃效果变量 */
+      --glass-bg: rgba(255, 255, 255, 0.25);
+      --glass-border: rgba(255, 255, 255, 0.18);
+      --glass-shadow: rgba(31, 38, 135, 0.15);
+      --glass-blur: blur(16px);
+      --blob-color-1: rgba(201, 162, 39, 0.35);
+      --blob-color-2: rgba(232, 212, 139, 0.25);
+      --blob-color-3: rgba(255, 215, 0, 0.15);
     }
 
     *, *::before, *::after {
@@ -164,7 +173,7 @@
     }
 
     /* ========================================
-       HERO SECTION (浅色背景)
+       HERO SECTION (浅色背景 + 液态玻璃效果)
        ======================================== */
     .hero-section {
       min-height: 85vh;
@@ -178,6 +187,7 @@
       position: absolute;
       inset: 0;
       z-index: 0;
+      background: linear-gradient(135deg, #fdfcfa 0%, #f5f2eb 50%, #faf8f5 100%);
     }
 
     .hero-bg::before {
@@ -185,8 +195,7 @@
       position: absolute;
       inset: 0;
       background:
-        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(201, 162, 39, 0.06) 0%, transparent 50%),
-        linear-gradient(180deg, #fdfcfa 0%, #f9f7f3 100%);
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(201, 162, 39, 0.08) 0%, transparent 50%);
     }
 
     .hero-bg::after {
@@ -201,47 +210,216 @@
       -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 10%, transparent 60%);
     }
 
+    /* ========================================
+       液态玻璃光晕效果（增强版）
+       ======================================== */
+    .liquid-glass-container {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .glass-blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      mix-blend-mode: screen;
+      animation: liquidFloat 20s ease-in-out infinite;
+    }
+
+    /* 主金色调光球 */
+    .glass-blob-1 {
+      width: 550px;
+      height: 550px;
+      background:
+        radial-gradient(circle at 30% 30%, rgba(255, 223, 100, 0.5) 0%, transparent 30%),
+        radial-gradient(circle at 70% 60%, rgba(201, 162, 39, 0.35) 0%, transparent 40%),
+        radial-gradient(circle at 50% 80%, rgba(180, 140, 60, 0.2) 0%, transparent 50%);
+      top: -15%;
+      left: -8%;
+      animation-duration: 25s;
+    }
+
+    /* 玫瑰金暖色光球 */
+    .glass-blob-2 {
+      width: 450px;
+      height: 450px;
+      background:
+        radial-gradient(circle at 60% 40%, rgba(255, 200, 150, 0.3) 0%, transparent 35%),
+        radial-gradient(circle at 40% 70%, rgba(232, 180, 120, 0.25) 0%, transparent 45%),
+        radial-gradient(circle at 80% 80%, rgba(201, 162, 39, 0.15) 0%, transparent 50%);
+      top: 25%;
+      right: -10%;
+      animation-duration: 30s;
+      animation-delay: -5s;
+    }
+
+    /* 薰衣草紫淡色光球 */
+    .glass-blob-3 {
+      width: 400px;
+      height: 400px;
+      background:
+        radial-gradient(circle at 40% 50%, rgba(220, 200, 255, 0.2) 0%, transparent 30%),
+        radial-gradient(circle at 60% 30%, rgba(200, 180, 220, 0.15) 0%, transparent 40%),
+        radial-gradient(circle at 50% 70%, rgba(232, 212, 139, 0.2) 0%, transparent 45%);
+      bottom: 0%;
+      left: 20%;
+      animation-duration: 22s;
+      animation-delay: -10s;
+    }
+
+    /* 冰蓝冷色光球 */
+    .glass-blob-4 {
+      width: 350px;
+      height: 350px;
+      background:
+        radial-gradient(circle at 50% 40%, rgba(200, 230, 255, 0.25) 0%, transparent 35%),
+        radial-gradient(circle at 30% 70%, rgba(180, 220, 240, 0.15) 0%, transparent 40%);
+      top: 10%;
+      left: 50%;
+      animation-duration: 28s;
+      animation-delay: -15s;
+      opacity: 0.8;
+    }
+
+    /* 珊瑚橙暖色光球 */
+    .glass-blob-5 {
+      width: 320px;
+      height: 320px;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(255, 180, 140, 0.2) 0%, transparent 35%),
+        radial-gradient(circle at 70% 30%, rgba(255, 200, 160, 0.15) 0%, transparent 45%);
+      bottom: 15%;
+      right: 25%;
+      animation-duration: 24s;
+      animation-delay: -8s;
+    }
+
+    @keyframes liquidFloat {
+      0%, 100% {
+        transform: translate(0, 0) scale(1) rotate(0deg);
+      }
+      25% {
+        transform: translate(30px, -40px) scale(1.1) rotate(5deg);
+      }
+      50% {
+        transform: translate(-20px, 20px) scale(0.95) rotate(-3deg);
+      }
+      75% {
+        transform: translate(15px, 30px) scale(1.05) rotate(2deg);
+      }
+    }
+
+    /* 流动边框光晕 */
+    .flowing-border {
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      background: conic-gradient(from 0deg,
+        transparent,
+        rgba(201, 162, 39, 0.3),
+        transparent,
+        rgba(232, 212, 139, 0.2),
+        transparent);
+      animation: rotateBorder 15s linear infinite;
+      opacity: 0.5;
+      filter: blur(60px);
+    }
+
+    .flowing-border-1 {
+      top: -200px;
+      right: -100px;
+    }
+
+    .flowing-border-2 {
+      bottom: -250px;
+      left: -150px;
+      animation-direction: reverse;
+      animation-duration: 20s;
+    }
+
+    @keyframes rotateBorder {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* 原有的浮动光球 - 增强版 */
     .floating-orb {
       position: absolute;
       border-radius: 50%;
       filter: blur(100px);
-      opacity: 0.3;
-      animation: float 25s ease-in-out infinite;
+      mix-blend-mode: screen;
       pointer-events: none;
     }
 
     .orb-1 {
       width: 350px;
       height: 350px;
-      background: radial-gradient(circle, rgba(201, 162, 39, 0.12) 0%, transparent 70%);
+      background: radial-gradient(circle, rgba(201, 162, 39, 0.15) 0%, transparent 70%);
       top: 5%;
       left: 8%;
+      animation: orbPulse 12s ease-in-out infinite;
     }
 
     .orb-2 {
       width: 280px;
       height: 280px;
-      background: radial-gradient(circle, rgba(201, 162, 39, 0.1) 0%, transparent 70%);
+      background: radial-gradient(circle, rgba(232, 212, 139, 0.12) 0%, transparent 70%);
       top: 40%;
       right: 10%;
-      animation-delay: -10s;
+      animation: orbPulse 15s ease-in-out infinite;
+      animation-delay: -6s;
     }
 
-    @keyframes float {
-      0%, 100% { transform: translate(0, 0); }
-      33% { transform: translate(20px, -20px); }
-      66% { transform: translate(-15px, 15px); }
+    @keyframes orbPulse {
+      0%, 100% {
+        transform: translate(0, 0) scale(1);
+        opacity: 0.4;
+      }
+      50% {
+        transform: translate(20px, -15px) scale(1.1);
+        opacity: 0.6;
+      }
     }
 
+    /* 鼠标跟随光晕效果 */
     .cursor-glow {
       position: fixed;
-      width: 600px;
-      height: 600px;
+      width: 500px;
+      height: 500px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(201, 162, 39, 0.05) 0%, transparent 60%);
+      background: radial-gradient(circle,
+        rgba(255, 220, 150, 0.12) 0%,
+        rgba(201, 162, 39, 0.08) 30%,
+        rgba(180, 140, 60, 0.04) 50%,
+        transparent 70%);
       pointer-events: none;
-      z-index: 1;
+      z-index: 0;
       transform: translate(-50%, -50%);
+      transition: width 0.3s ease, height 0.3s ease, opacity 0.3s ease;
+    }
+
+    .cursor-glass {
+      position: fixed;
+      width: 350px;
+      height: 350px;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 0;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(circle,
+        rgba(255, 255, 255, 0.12) 0%,
+        rgba(255, 210, 100, 0.08) 35%,
+        rgba(201, 162, 39, 0.04) 50%,
+        transparent 70%);
+      transition: opacity 0.3s ease, width 0.2s ease, height 0.2s ease;
+      opacity: 0;
+    }
+
+    .cursor-glass.active {
+      opacity: 1;
     }
 
     .noise-overlay {
@@ -287,15 +465,19 @@
       align-items: center;
       gap: 0.5rem;
       padding: 0.5rem 1rem;
-      background: rgba(255, 255, 255, 0.7);
-      border: 1px solid rgba(0, 0, 0, 0.04);
+      background: rgba(255, 255, 255, 0.5);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
       border-radius: var(--radius-full);
       transition: all 0.3s ease;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
     }
 
     .logo:hover {
-      background: rgba(255, 255, 255, 1);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+      background: rgba(255, 255, 255, 0.7);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+      transform: translateY(-1px);
     }
 
     .logo-mark {
@@ -322,6 +504,34 @@
     }
 
     .header-right { display: flex; align-items: center; gap: 1.5rem; }
+
+    .github-link {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.5);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      color: var(--gray-600);
+      transition: all 0.3s ease;
+      text-decoration: none;
+    }
+
+    .github-link:hover {
+      background: rgba(255, 255, 255, 0.8);
+      color: var(--gray-900);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .github-icon {
+      width: 18px;
+      height: 18px;
+    }
 
     .date-display {
       font-family: var(--font-display);
@@ -417,18 +627,26 @@
 
     .search-wrapper {
       display: flex;
-      background: rgba(255, 255, 255, 0.85);
-      border: 1px solid rgba(0, 0, 0, 0.06);
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.4);
       border-radius: var(--radius-xl);
       overflow: hidden;
       transition: all 0.4s var(--ease-out-expo);
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.03);
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
     }
 
     .search-wrapper:focus-within {
-      border-color: rgba(201, 162, 39, 0.4);
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.06), 0 0 0 4px rgba(201, 162, 39, 0.08);
+      border-color: rgba(201, 162, 39, 0.5);
+      box-shadow:
+        0 20px 40px rgba(0, 0, 0, 0.1),
+        0 0 0 4px rgba(201, 162, 39, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.6);
       transform: translateY(-2px);
+      background: rgba(255, 255, 255, 0.75);
     }
 
     .search-input {
@@ -596,8 +814,10 @@
     }
 
     .history-card {
-      background: rgba(255, 255, 255, 0.95);
-      border: none;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
       border-radius: var(--radius-lg);
       padding: 2rem;
       cursor: pointer;
@@ -606,7 +826,9 @@
       opacity: 0;
       transition: all 0.4s var(--ease-out-expo);
       animation: cardReveal 0.6s var(--ease-out-expo) forwards;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
     }
 
     .history-card:nth-child(1) { animation-delay: 3.8s; }
@@ -682,18 +904,61 @@
     }
 
     /* ========================================
-       ANALYSIS SECTION (深色背景)
+       ANALYSIS SECTION (深色背景 + 液态玻璃)
        ======================================== */
     .analysis-section {
       min-height: 100vh;
       background: var(--dark-bg);
       position: relative;
       display: none;
+      overflow: hidden;
     }
 
     .analysis-section.active {
       display: block;
       animation: sectionSlideUp 0.8s var(--ease-out-expo) forwards;
+    }
+
+    /* 深色模式液态玻璃背景 */
+    .analysis-section::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse 60% 40% at 20% 30%, rgba(201, 162, 39, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse 50% 50% at 80% 70%, rgba(232, 212, 139, 0.05) 0%, transparent 50%);
+    }
+
+    .dark-glass-blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      pointer-events: none;
+      opacity: 0.4;
+    }
+
+    .dark-blob-1 {
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(201, 162, 39, 0.2) 0%, transparent 70%);
+      top: -100px;
+      left: -100px;
+      animation: darkBlobFloat 20s ease-in-out infinite;
+    }
+
+    .dark-blob-2 {
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, rgba(232, 212, 139, 0.15) 0%, transparent 70%);
+      bottom: -50px;
+      right: -50px;
+      animation: darkBlobFloat 25s ease-in-out infinite reverse;
+    }
+
+    @keyframes darkBlobFloat {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(30px, -20px) scale(1.1); }
     }
 
     @keyframes sectionSlideUp {
@@ -1195,10 +1460,25 @@
 
   <div class="noise-overlay"></div>
   <div class="cursor-glow" id="cursorGlow"></div>
+  <div class="cursor-glass" id="cursorGlass"></div>
 
   <!-- HERO SECTION (浅色) -->
   <section class="hero-section" id="heroSection">
     <div class="hero-bg">
+      <!-- 液态玻璃光晕 -->
+      <div class="liquid-glass-container">
+        <div class="glass-blob glass-blob-1"></div>
+        <div class="glass-blob glass-blob-2"></div>
+        <div class="glass-blob glass-blob-3"></div>
+        <div class="glass-blob glass-blob-4"></div>
+        <div class="glass-blob glass-blob-5"></div>
+      </div>
+
+      <!-- 流动边框光晕 -->
+      <div class="flowing-border flowing-border-1"></div>
+      <div class="flowing-border flowing-border-2"></div>
+
+      <!-- 原有浮动光球 -->
       <div class="floating-orb orb-1"></div>
       <div class="floating-orb orb-2"></div>
     </div>
@@ -1213,6 +1493,11 @@
           <span class="tagline">金融分析智能体系统</span>
         </div>
         <div class="header-right">
+          <a href="https://github.com/Curzsu" target="_blank" rel="noopener noreferrer" class="github-link" aria-label="GitHub">
+            <svg class="github-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+            </svg>
+          </a>
           <span class="date-display" id="currentDate"></span>
           <div class="status-indicator">
             <span class="status-dot"></span>
@@ -1292,6 +1577,10 @@
 
   <!-- ANALYSIS SECTION (深色) -->
   <section class="analysis-section" id="analysisSection">
+    <!-- 深色模式液态玻璃光晕 -->
+    <div class="dark-glass-blob dark-blob-1"></div>
+    <div class="dark-glass-blob dark-blob-2"></div>
+
     <div class="analysis-container">
       <div class="progress-header">
         <div class="progress-title-group">
@@ -1452,20 +1741,64 @@
 
     historyObserver.observe(historySection);
 
-    // Cursor glow
+    // Cursor glow and glass effect
     const cursorGlow = document.getElementById('cursorGlow');
-    let mouseX = 0, mouseY = 0, glowX = 0, glowY = 0;
+    const cursorGlass = document.getElementById('cursorGlass');
+    let mouseX = window.innerWidth / 2;
+    let mouseY = window.innerHeight / 2;
+    let glowX = mouseX, glowY = mouseY, glassX = mouseX, glassY = mouseY;
+    let isHovering = false;
+
+    // Initialize cursor position
+    cursorGlow.style.left = glowX + 'px';
+    cursorGlow.style.top = glowY + 'px';
+    cursorGlass.style.left = glassX + 'px';
+    cursorGlass.style.top = glassY + 'px';
+    cursorGlass.classList.add('active');
 
     document.addEventListener('mousemove', (e) => {
       mouseX = e.clientX;
       mouseY = e.clientY;
     });
 
+    // Enhance glow on interactive elements
+    const interactiveElements = document.querySelectorAll('button, a, .history-card, .search-input, input');
+    interactiveElements.forEach(el => {
+      el.addEventListener('mouseenter', () => {
+        isHovering = true;
+        cursorGlow.style.width = '600px';
+        cursorGlow.style.height = '600px';
+        cursorGlow.style.background = `radial-gradient(circle,
+          rgba(255, 220, 150, 0.18) 0%,
+          rgba(201, 162, 39, 0.12) 30%,
+          rgba(180, 140, 60, 0.06) 50%,
+          transparent 70%)`;
+      });
+      el.addEventListener('mouseleave', () => {
+        isHovering = false;
+        cursorGlow.style.width = '500px';
+        cursorGlow.style.height = '500px';
+        cursorGlow.style.background = `radial-gradient(circle,
+          rgba(255, 220, 150, 0.12) 0%,
+          rgba(201, 162, 39, 0.08) 30%,
+          rgba(180, 140, 60, 0.04) 50%,
+          transparent 70%)`;
+      });
+    });
+
     function animateCursor() {
-      glowX += (mouseX - glowX) * 0.08;
-      glowY += (mouseY - glowY) * 0.08;
+      // Glow follows slowly
+      glowX += (mouseX - glowX) * 0.06;
+      glowY += (mouseY - glowY) * 0.06;
       cursorGlow.style.left = glowX + 'px';
       cursorGlow.style.top = glowY + 'px';
+
+      // Glass follows faster with slight offset for parallax
+      glassX += (mouseX - glassX) * 0.1;
+      glassY += (mouseY - glassY) * 0.1;
+      cursorGlass.style.left = glassX + 'px';
+      cursorGlass.style.top = glassY + 'px';
+
       requestAnimationFrame(animateCursor);
     }
     animateCursor();
