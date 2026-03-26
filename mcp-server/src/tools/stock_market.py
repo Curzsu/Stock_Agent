@@ -89,10 +89,12 @@ def register_stock_market_tools(app: FastMCP, active_data_source: FinancialDataS
                          '60': 60分钟
                        默认为'd'
             adjust_flag: 价格/成交量调整标志。有效选项（来自Baostock）：
-                           '1': 前复权
+                           '1': 前复权（历史价格已调整，不等于真实交易价格）
                            '2': 后复权
-                           '3': 不复权
-                         默认为'3'
+                           '3': 不复权（真实的交易价格）- **推荐用于分析报告**
+                         默认为'3'（不复权）
+                         **重要提示：如需获取真实股价用于分析报告，请使用默认值'3'（不复权），
+                         不要使用前复权价格，否则会导致股价与实际交易价格不符。**
             fields: 可选的具体数据字段列表（必须是有效的Baostock字段）
                     如果为None或空，将使用默认字段（例如：date, code, open, high, low, close, volume, amount, pctChg）
 
