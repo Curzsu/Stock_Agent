@@ -50,6 +50,9 @@ from src.agents.summary_agent import summary_agent
 # Import state definition
 from src.utils.state_definition import AgentState
 
+# Import MCP cleanup function
+from src.tools.mcp_client import close_mcp_client_sessions
+
 # ============================================================================
 # FastAPI Application Setup
 # ============================================================================
@@ -490,6 +493,13 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         session.status = "error"
         session.error = str(e)
         session.end_time = datetime.now().isoformat()
+
+    finally:
+        # 清理MCP客户端连接，确保下次分析时重新建立连接
+        try:
+            await close_mcp_client_sessions()
+        except Exception as cleanup_error:
+            print(f"Warning: MCP cleanup error: {cleanup_error}")
 
 # ============================================================================
 # API Endpoints

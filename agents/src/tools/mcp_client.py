@@ -118,18 +118,23 @@ async def close_mcp_client_sessions():
     关闭MultiServerMCPClient管理的任何开放会话。
     如果必要，应在应用程序关闭时调用此函数。
     """
-    global _mcp_client_instance
+    global _mcp_client_instance, _mcp_tools, _mcp_init_lock, _mcp_init_lock_loop
     if _mcp_client_instance:
         logger.info(f"{WAIT_ICON} Closing MCP client sessions...")
         try:
+            # 尝试调用close方法（如果存在）
+            if hasattr(_mcp_client_instance, 'close'):
+                await _mcp_client_instance.close()
             logger.info(
-                f"{SUCCESS_ICON} MCP client sessions (if any were persistently open) assumed closed or managed by library.")
-            _mcp_client_instance = None   # 允许重新初始化
-            global _mcp_tools
-            _mcp_tools = None
+                f"{SUCCESS_ICON} MCP client sessions closed successfully.")
         except Exception as e:
             logger.error(
                 f"{ERROR_ICON} Error during MCP client session cleanup: {e}", exc_info=True)
+        finally:
+            _mcp_client_instance = None   # 允许重新初始化
+            _mcp_tools = None             # 清除缓存的工具
+            _mcp_init_lock = None         # 重置锁
+            _mcp_init_lock_loop = None
     else:
         logger.info("MCP client was not initialized, no sessions to close.")
 
