@@ -115,7 +115,7 @@ def generate_report_with_finr1(model, tokenizer, prompt, max_new_tokens=5000):
                 **inputs,
                 max_new_tokens=max_new_tokens,
                 do_sample=True,
-                temperature=0.5,
+                temperature=0.3,
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id
             )
@@ -328,7 +328,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
             # 记录模型配置信息
             model_config = {
                 "model": "FinR1",
-                "temperature": 0.5,
+                "temperature": 0.3,
                 "max_tokens": 5000,
                 "model_path": "/root/code/Finance/FinR1"
             }
@@ -372,7 +372,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
             # 记录模型配置信息
             model_config = {
                 "model": model_name,
-                "temperature": 0.5,
+                "temperature": 0.3,
                 "max_tokens": 5000,
                 "api_base": base_url
             }
@@ -389,7 +389,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
                 model=model_name,
                 api_key=api_key,
                 base_url=base_url,
-                temperature=0.5,  # 提高温度以增加创造性和更自然的表达
+                temperature=0.3,  # 保持一致性和稳定性
                 max_tokens=5000   # 增大输出长度以生成更详细的综合报告
             )
 
