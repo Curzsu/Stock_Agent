@@ -167,8 +167,8 @@ async def fundamental_agent(state: AgentState) -> AgentState:
                 "messages": [HumanMessage(content=agent_input)]
             }
 
-            # 调用 Agent执行分析
-            response = await agent.ainvoke(input_data)
+            # 调用 Agent执行分析（设置递归上限防止LLM陷入死循环）
+            response = await agent.ainvoke(input_data, config={"recursion_limit": 25})
 
             end_time = time.time()
             execution_time = end_time - start_time

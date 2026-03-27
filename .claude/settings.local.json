@@ -46,7 +46,8 @@
       "Bash(taskkill /F /IM node.exe)",
       "Bash(./venv/Scripts/python.exe -c \"\nimport sys\nsys.path.insert(0, ''.'')\nsys.path.insert(0, ''agents'')\nfrom backend.server import app\nprint(''Import successful!'')\n\")",
       "Bash(dir \"E:\\Curzsu\\Finance1\" /a)",
-      "Skill(superpowers:brainstorming)"
+      "Skill(superpowers:brainstorming)",
+      "Bash(./venv/Scripts/python.exe:*)"
     ],
     "deny": [],
     "ask": []
