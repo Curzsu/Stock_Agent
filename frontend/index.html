@@ -2194,7 +2194,10 @@
       }
 
       reportContent.innerHTML = html;
-      window.scrollTo({ top: 0, behavior: 'instant' });
+      // 等待渲染完成后平滑滚动到报告区域顶部
+      requestAnimationFrame(() => {
+        reportSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     }
 
     function runDemoSimulation() {
