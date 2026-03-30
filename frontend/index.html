@@ -662,6 +662,19 @@
 
     .search-input::placeholder { color: var(--gray-400); }
 
+    .search-input.input-error {
+      animation: input-shake 0.4s ease;
+    }
+    .search-input.input-error::placeholder { color: #e74c3c; }
+
+    @keyframes input-shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-6px); }
+      40% { transform: translateX(6px); }
+      60% { transform: translateX(-4px); }
+      80% { transform: translateX(4px); }
+    }
+
     .search-btn {
       display: flex;
       align-items: center;
@@ -1967,6 +1980,22 @@
       const input = stockInput.value.trim();
       if (!input) return;
 
+      // 前端预校验
+      if (input.length < 2) {
+        showInputError('请输入至少2个字符的公司名称或股票代码');
+        return;
+      }
+      // 纯数字但不是5-6位（合法A股代码长度）
+      if (/^\d+$/.test(input) && (input.length < 5 || input.length > 6)) {
+        showInputError('股票代码应为5-6位数字，如 600519');
+        return;
+      }
+      // 纯特殊符号/无意义字符
+      if (/^[^a-zA-Z0-9\u4e00-\u9fa5]+$/.test(input)) {
+        showInputError('请输入有效的公司名称或股票代码');
+        return;
+      }
+
       // Clean up previous analysis state
       currentResult = null;
       const oldReportBtn = document.getElementById('goToReportBtn');
@@ -2004,6 +2033,18 @@
         // Real API mode
         startRealAnalysis(input);
       }
+    }
+
+    // 输入校验错误提示
+    function showInputError(msg) {
+      const input = document.getElementById('stockInput');
+      input.classList.add('input-error');
+      input.placeholder = msg;
+      input.value = '';
+      setTimeout(() => {
+        input.classList.remove('input-error');
+        input.placeholder = '输入股票代码或公司名称...';
+      }, 2500);
     }
 
     async function startRealAnalysis(query) {
@@ -2049,7 +2090,8 @@
 
         } else if (status.status === 'error') {
           clearInterval(elapsedInterval);
-          document.getElementById('statusText').textContent = '分析出错';
+          const errorMsg = status.error || '分析出错，请稍后重试。';
+          document.getElementById('statusText').textContent = errorMsg;
 
         } else if (status.status === 'running') {
           // Continue polling

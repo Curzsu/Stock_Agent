@@ -29,7 +29,8 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+import baostock as bs
 
 # Import agent system components
 from dotenv import load_dotenv
@@ -79,6 +80,23 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     """Request model for analysis endpoint"""
     query: str
+
+    @field_validator('query')
+    @classmethod
+    def validate_query(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError('查询内容不能为空')
+        if len(v) < 2:
+            raise ValueError('请输入至少2个字符的公司名称或股票代码')
+        # 纯数字但不是5-6位
+        if v.isdigit() and (len(v) < 5 or len(v) > 6):
+            raise ValueError('股票代码应为5-6位数字，如 600519')
+        # 纯特殊符号
+        import re
+        if re.match(r'^[^a-zA-Z0-9\u4e00-\u9fa5]+$', v):
+            raise ValueError('请输入有效的公司名称或股票代码')
+        return v
 
 class AnalysisStatus(BaseModel):
     """Status model for tracking analysis progress"""
@@ -355,6 +373,29 @@ def extract_stock_info(query: str) -> tuple:
 
     return company_name, stock_code
 
+def verify_stock_code_exists(stock_code: str) -> tuple:
+    """
+    用 baostock 验证股票代码是否真实存在。
+    返回 (exists: bool, stock_name: str or None)
+    """
+    try:
+        bs.login()
+        rs = bs.query_stock_basic(code=stock_code)
+        if rs.error_code == '0' and rs.next():
+            name = rs.get_row_data()[rs.fields.index('code_name')] if 'code_name' in rs.fields else None
+            bs.logout()
+            return True, name
+        bs.logout()
+        return False, None
+    except Exception as e:
+        print(f"Warning: baostock verify failed: {e}")
+        try:
+            bs.logout()
+        except:
+            pass
+        # 验证失败时不阻断流程，让 agent 自行处理
+        return True, None
+
 async def run_analysis_workflow(analysis_id: str, query: str):
     """Run the full analysis workflow in background"""
     session = analysis_sessions[analysis_id]
@@ -365,6 +406,40 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         # Extract stock info
         company_name, stock_code = extract_stock_info(query)
         session.company_name = company_name or query
+
+        # 校验：无法识别有效的公司名称或股票代码
+        if not company_name and not stock_code:
+            session.status = "error"
+            session.error = f"无法识别查询内容「{query}」，请输入有效的公司名称或股票代码。"
+            session.end_time = datetime.now().isoformat()
+            return
+
+        # 校验：提取到公司名但无法匹配到股票代码，说明公司不在支持范围内
+        if company_name and not stock_code:
+            session.status = "error"
+            session.error = f"未找到「{company_name}」对应的股票代码，请确认公司名称是否正确，或直接输入股票代码（如 600519）。"
+            session.end_time = datetime.now().isoformat()
+            return
+
+        # 校验：纯数字股票代码的格式合法性（A股首位只能是0/3/6）
+        if stock_code and stock_code.isdigit() and stock_code[0] not in ('0', '3', '6'):
+            session.status = "error"
+            session.error = f"股票代码「{stock_code}」不是有效的A股代码。沪市以6开头，深市以0或3开头。"
+            session.end_time = datetime.now().isoformat()
+            return
+
+        # 用 baostock 验证股票代码是否真实存在（最终防线）
+        full_code = f"{'sh' if stock_code.startswith('6') else 'sz'}.{stock_code}"
+        exists, real_name = verify_stock_code_exists(full_code)
+        if not exists:
+            session.status = "error"
+            session.error = f"股票代码「{full_code}」不存在或已退市，请确认后重试。"
+            session.end_time = datetime.now().isoformat()
+            return
+        # 如果 baostock 返回了真实名称，更新到数据中
+        if real_name and (not company_name or company_name == query):
+            company_name = real_name
+            session.company_name = company_name
 
         # Get current time info
         current_datetime = datetime.now()
