@@ -89,6 +89,8 @@ class AnalysisStatus(BaseModel):
     end_time: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    query: Optional[str] = None
+    company_name: Optional[str] = None
 
 # ============================================================================
 # In-memory storage for analysis sessions
@@ -362,6 +364,7 @@ async def run_analysis_workflow(analysis_id: str, query: str):
     try:
         # Extract stock info
         company_name, stock_code = extract_stock_info(query)
+        session.company_name = company_name or query
 
         # Get current time info
         current_datetime = datetime.now()
@@ -530,7 +533,8 @@ async def start_analysis(request: AnalyzeRequest, background_tasks: BackgroundTa
             "value": "waiting",
             "news": "waiting",
             "summary": "waiting"
-        }
+        },
+        query=request.query
     )
 
     analysis_sessions[analysis_id] = session
@@ -575,17 +579,17 @@ async def get_analysis_result(analysis_id: str):
 
 @app.get("/api/history")
 async def get_analysis_history():
-    """Get list of recent analyses"""
+    """Get list of recent analyses (including running tasks)"""
     history = []
     for analysis_id, session in list(analysis_sessions.items())[-10:]:  # Last 10
-        if session.status == "completed" and session.result:
-            history.append({
-                "analysis_id": analysis_id,
-                "company_name": session.result.get("company_name", "Unknown"),
-                "stock_code": session.result.get("stock_code", ""),
-                "analysis_date": session.result.get("analysis_date", ""),
-                "status": session.status
-            })
+        entry = {
+            "analysis_id": analysis_id,
+            "company_name": (session.result and session.result.get("company_name")) or session.company_name or session.query or "Unknown",
+            "stock_code": (session.result and session.result.get("stock_code")) or "",
+            "analysis_date": (session.result and session.result.get("analysis_date")) or session.start_time or "",
+            "status": session.status
+        }
+        history.append(entry)
 
     return {"history": history}
 

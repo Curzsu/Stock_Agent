@@ -1538,39 +1538,10 @@
     <div class="history-container">
       <div class="section-header">
         <h2 class="section-title">历史报告</h2>
-        <span class="section-count">3 份报告</span>
+        <span class="section-count" id="historyCount">0 份报告</span>
       </div>
-      <div class="history-grid">
-        <div class="history-card">
-          <div class="history-card-header">
-            <div>
-              <div class="history-card-title">贵州茅台</div>
-              <div class="history-card-code">600519</div>
-            </div>
-            <div class="history-card-date">2025-08-10</div>
-          </div>
-          <div class="history-card-excerpt">作为中国高端白酒行业绝对龙头，展现出卓越的盈利能力、财务稳健性和市场竞争力...</div>
-        </div>
-        <div class="history-card">
-          <div class="history-card-header">
-            <div>
-              <div class="history-card-title">比亚迪</div>
-              <div class="history-card-code">002594</div>
-            </div>
-            <div class="history-card-date">2025-08-09</div>
-          </div>
-          <div class="history-card-excerpt">新能源汽车行业领军企业，全球销量持续增长，技术壁垒显著...</div>
-        </div>
-        <div class="history-card">
-          <div class="history-card-header">
-            <div>
-              <div class="history-card-title">宁德时代</div>
-              <div class="history-card-code">300750</div>
-            </div>
-            <div class="history-card-date">2025-08-08</div>
-          </div>
-          <div class="history-card-excerpt">全球动力电池龙头，市占率稳居第一，研发投入持续加大...</div>
-        </div>
+      <div class="history-grid" id="historyGrid">
+        <!-- 动态渲染 -->
       </div>
     </div>
   </section>
@@ -1808,6 +1779,9 @@
       year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
     });
 
+    // 加载历史记录
+    loadHistory();
+
     // Hint tags
     document.querySelectorAll('.hint-tag').forEach(tag => {
       tag.addEventListener('click', () => {
@@ -1829,13 +1803,23 @@
 
     document.getElementById('backBtn').addEventListener('click', () => {
       analysisSection.classList.remove('active');
+      clearInterval(elapsedInterval);
+      elapsedInterval = null;
 
       // Clean up report button if exists
       const reportBtn = document.getElementById('goToReportBtn');
       if (reportBtn) reportBtn.remove();
-      currentResult = null;
+      // 不清 currentResult，已完成的分析可从历史卡片重新进入
 
-      // 快速显示，跳过动画延迟
+      goHome();
+    });
+
+    let elapsedInterval = null;
+    let seconds = 0;
+    let currentAnalysisId = null;
+
+    // 通用返回首页函数
+    function goHome() {
       heroSection.style.display = 'flex';
       heroSection.style.opacity = '1';
       heroSection.style.transition = 'opacity 0.3s ease';
@@ -1844,7 +1828,6 @@
       historySection.style.opacity = '1';
       historySection.classList.add('visible');
 
-      // 强制立即显示所有动画元素
       document.querySelectorAll('.title-line, .hero-subtitle, .search-container, .search-hints, .section-header, .history-card').forEach(el => {
         el.style.animationDelay = '0s';
         el.style.opacity = '1';
@@ -1852,11 +1835,127 @@
       });
 
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
+      loadHistory();
+    }
 
-    let elapsedInterval = null;
-    let seconds = 0;
-    let currentAnalysisId = null;
+    // 动态加载历史记录（含进行中的任务）
+    async function loadHistory() {
+      const grid = document.getElementById('historyGrid');
+      const countEl = document.getElementById('historyCount');
+      grid.innerHTML = '';
+
+      try {
+        const res = await fetch(`${API_BASE}/history`);
+        const data = await res.json();
+        const items = data.history || [];
+
+        // 按时间倒序：最新的排前面
+        items.reverse();
+
+        countEl.textContent = `${items.length} 份报告`;
+
+        if (items.length === 0) {
+          grid.innerHTML = '<div style="text-align:center;color:#888;padding:2rem;">暂无分析记录</div>';
+          return;
+        }
+
+        items.forEach(item => {
+          const card = document.createElement('div');
+          card.className = 'history-card';
+          card.style.animationDelay = '0s';
+          card.style.opacity = '1';
+
+          const isRunning = item.status === 'running' || item.status === 'pending';
+          const isError = item.status === 'error';
+          const statusLabel = isRunning ? '<span style="color:#c9a227;">● 分析中</span>'
+            : isError ? '<span style="color:#e74c3c;">● 出错</span>'
+            : '<span style="color:#27ae60;">● 已完成</span>';
+
+          card.innerHTML = `
+            <div class="history-card-header">
+              <div>
+                <div class="history-card-title">${item.company_name || '未知'}</div>
+                <div class="history-card-code">${item.stock_code || '-'}</div>
+              </div>
+              <div class="history-card-date">${statusLabel}</div>
+            </div>
+            <div class="history-card-excerpt">${item.analysis_date ? item.analysis_date.slice(0, 10) : '-'}</div>
+          `;
+
+          card.addEventListener('click', () => {
+            if (isRunning) {
+              resumeAnalysis(item.analysis_id, item.company_name || item.stock_code || '分析中');
+            } else if (!isError) {
+              viewCompletedReport(item.analysis_id);
+            }
+          });
+
+          grid.appendChild(card);
+        });
+      } catch (e) {
+        console.error('Failed to load history:', e);
+      }
+    }
+
+    // 恢复正在进行的分析视图
+    async function resumeAnalysis(analysisId, displayName) {
+      currentAnalysisId = analysisId;
+      currentResult = null;
+      const oldReportBtn = document.getElementById('goToReportBtn');
+      if (oldReportBtn) oldReportBtn.remove();
+
+      heroSection.style.display = 'none';
+      historySection.style.display = 'none';
+      analysisSection.classList.add('active');
+
+      document.getElementById('analyzingStock').textContent = displayName;
+
+      document.querySelectorAll('.agent-card').forEach(card => {
+        card.classList.remove('active', 'complete');
+        card.querySelector('.status-text').textContent = '等待中';
+      });
+
+      document.getElementById('statusText').textContent = '处理中';
+
+      // 从后端获取开始时间，计算已过去的秒数
+      try {
+        const statusRes = await fetch(`${API_BASE}/status/${analysisId}`);
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          // 先用已有的进度更新卡片
+          if (statusData.progress) updateAgentCards(statusData.progress);
+
+          if (statusData.start_time) {
+            const startTime = new Date(statusData.start_time);
+            seconds = Math.floor((Date.now() - startTime.getTime()) / 1000);
+          } else {
+            seconds = 0;
+          }
+        }
+      } catch (e) {
+        seconds = 0;
+      }
+
+      updateTimer();
+      if (elapsedInterval) clearInterval(elapsedInterval);
+      elapsedInterval = setInterval(updateTimer, 1000);
+
+      pollAnalysisStatus();
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+
+    // 查看已完成分析的报告
+    async function viewCompletedReport(analysisId) {
+      try {
+        const res = await fetch(`${API_BASE}/result/${analysisId}`);
+        if (!res.ok) return;
+        const result = await res.json();
+        currentResult = result;
+        goToReport();
+      } catch (e) {
+        console.error('Failed to load report:', e);
+      }
+    }
 
     // API Configuration
     const API_BASE = 'http://localhost:8000/api';
@@ -2141,41 +2240,15 @@
     document.getElementById('backToHomeBtn').addEventListener('click', () => {
       const reportSection = document.getElementById('reportSection');
       reportSection.classList.remove('active');
-
-      heroSection.style.display = 'flex';
-      heroSection.style.opacity = '1';
-      historySection.style.display = 'block';
-      historySection.style.opacity = '1';
-      historySection.classList.add('visible');
-
-      document.querySelectorAll('.title-line, .hero-subtitle, .search-container, .search-hints, .section-header, .history-card').forEach(el => {
-        el.style.animationDelay = '0s';
-        el.style.opacity = '1';
-        el.style.transform = 'none';
-      });
-
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      goHome();
     });
 
     document.getElementById('newAnalysisBtn').addEventListener('click', () => {
       const reportSection = document.getElementById('reportSection');
       reportSection.classList.remove('active');
-
-      heroSection.style.display = 'flex';
-      heroSection.style.opacity = '1';
-      historySection.style.display = 'block';
-      historySection.style.opacity = '1';
-      historySection.classList.add('visible');
-
-      document.querySelectorAll('.title-line, .hero-subtitle, .search-container, .search-hints, .section-header, .history-card').forEach(el => {
-        el.style.animationDelay = '0s';
-        el.style.opacity = '1';
-        el.style.transform = 'none';
-      });
-
+      goHome();
       stockInput.value = '';
       stockInput.focus();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   </script>
 </body>
