@@ -12,6 +12,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.outputs import ChatResult, ChatGeneration
 from langgraph.prebuilt import create_react_agent
 import time
+import asyncio
 
 from src.utils.state_definition import AgentState
 from src.tools.mcp_client import get_mcp_tools
@@ -168,7 +169,20 @@ async def fundamental_agent(state: AgentState) -> AgentState:
             }
 
             # 调用 Agent执行分析（设置递归上限防止LLM陷入死循环）
-            response = await agent.ainvoke(input_data, config={"recursion_limit": 25})
+            # 设置480秒（8分钟）总超时，防止LLM API挂起导致永久等待
+            try:
+                response = await asyncio.wait_for(
+                    agent.ainvoke(input_data, config={"recursion_limit": 25}),
+                    timeout=480.0
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"{ERROR_ICON} FundamentalAgent: Agent execution timed out after 480 seconds")
+                current_data["fundamental_analysis"] = "基本面分析超时：LLM响应时间过长（超过8分钟），请稍后重试。"
+                current_data["fundamental_analysis_error"] = "Agent execution timed out after 480 seconds"
+                current_metadata["fundamental_agent_error"] = "Agent execution timed out"
+                execution_logger.log_agent_complete(
+                    agent_name, current_data, time.time() - agent_start_time, False, "Agent execution timed out after 480 seconds")
+                return {"data": current_data, "messages": current_messages, "metadata": current_metadata}
 
             end_time = time.time()
             execution_time = end_time - start_time
