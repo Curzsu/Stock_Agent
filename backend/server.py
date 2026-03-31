@@ -373,6 +373,37 @@ def extract_stock_info(query: str) -> tuple:
 
     return company_name, stock_code
 
+def lookup_stock_code_by_name(company_name: str) -> tuple:
+    """
+    用 baostock 根据公司名称查找股票代码（在线查找，覆盖所有A股）。
+    返回 (stock_code: str or None, stock_name: str or None)
+    """
+    try:
+        bs.login()
+        rs = bs.query_stock_basic()
+        if rs.error_code != '0':
+            bs.logout()
+            return None, None
+
+        while rs.next():
+            row = rs.get_row_data()
+            code_full = row[rs.fields.index('code')]
+            name = row[rs.fields.index('code_name')]
+            if name == company_name:
+                bs.logout()
+                pure_code = code_full.split('.')[1] if '.' in code_full else code_full
+                return pure_code, name
+
+        bs.logout()
+        return None, None
+    except Exception as e:
+        print(f"Warning: baostock name lookup failed: {e}")
+        try:
+            bs.logout()
+        except:
+            pass
+        return None, None
+
 def verify_stock_code_exists(stock_code: str) -> tuple:
     """
     用 baostock 验证股票代码是否真实存在。
@@ -414,12 +445,18 @@ async def run_analysis_workflow(analysis_id: str, query: str):
             session.end_time = datetime.now().isoformat()
             return
 
-        # 校验：提取到公司名但无法匹配到股票代码，说明公司不在支持范围内
+        # 校验：提取到公司名但无法匹配到股票代码，尝试用 baostock 在线查找
         if company_name and not stock_code:
-            session.status = "error"
-            session.error = f"未找到「{company_name}」对应的股票代码，请确认公司名称是否正确，或直接输入股票代码（如 600519）。"
-            session.end_time = datetime.now().isoformat()
-            return
+            stock_code, real_name = lookup_stock_code_by_name(company_name)
+            if stock_code:
+                if real_name:
+                    company_name = real_name
+                    session.company_name = company_name
+            else:
+                session.status = "error"
+                session.error = f"未找到「{company_name}」对应的股票代码，请确认公司名称是否正确，或直接输入股票代码（如 600519）。"
+                session.end_time = datetime.now().isoformat()
+                return
 
         # 校验：纯数字股票代码的格式合法性（A股首位只能是0/3/6）
         if stock_code and stock_code.isdigit() and stock_code[0] not in ('0', '3', '6'):
