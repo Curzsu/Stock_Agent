@@ -1830,6 +1830,12 @@
     let elapsedInterval = null;
     let seconds = 0;
     let currentAnalysisId = null;
+    let currentQuery = '';
+
+    // Request notification permission on page load
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
 
     // 通用返回首页函数
     function goHome() {
@@ -2048,6 +2054,7 @@
     }
 
     async function startRealAnalysis(query) {
+      currentQuery = query;
       try {
         // Start analysis
         const response = await fetch(`${API_BASE}/analyze`, {
@@ -2087,6 +2094,12 @@
           displayResults(result);
           clearInterval(elapsedInterval);
           document.getElementById('statusText').textContent = '已完成';
+
+          // Browser notification
+          if (Notification.permission === 'granted') {
+            const name = currentQuery || '股票';
+            new Notification('股票分析完成', { body: `${name} 的分析报告已生成` });
+          }
 
         } else if (status.status === 'error') {
           clearInterval(elapsedInterval);
