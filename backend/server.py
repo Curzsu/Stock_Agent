@@ -361,15 +361,11 @@ def extract_stock_info(query: str) -> tuple:
 
     # If we have company name but no stock code, look up in the mapping table
     if company_name and not stock_code:
-        # Try exact match first
+        # Only exact match - partial matching removed to avoid false positives
+        # (e.g. "银行" matching "平安银行", "汽车" matching "长城汽车")
+        # Fallback to baostock full-text search for anything not in the map
         if company_name in COMPANY_CODE_MAP:
             stock_code = COMPANY_CODE_MAP[company_name]
-        else:
-            # Try partial match (e.g., "比亚迪" matches keys containing "比亚迪")
-            for name, code in COMPANY_CODE_MAP.items():
-                if company_name in name or name in company_name:
-                    stock_code = code
-                    break
 
     return company_name, stock_code
 
