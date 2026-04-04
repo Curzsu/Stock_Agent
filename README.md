@@ -109,7 +109,10 @@ cp agents/.env.example agents/.env
 
 ```bash
 # Windows
-start_server.bat
+scripts\start_server.bat
+
+# Linux/Mac
+bash scripts/start_server.sh
 
 # 或手动启动
 python -m uvicorn backend.server:app --host 0.0.0.0 --port 8000
@@ -123,27 +126,56 @@ python -m uvicorn backend.server:app --host 0.0.0.0 --port 8000
 
 ```
 finex/
-├── backend/                 # 后端服务
-│   └── server.py           # FastAPI 主程序
-├── frontend/               # 前端页面
-│   └── index.html          # 单页应用
-├── agents/                 # AI Agent 系统
+├── backend/                    # 后端服务
+│   ├── server.py              # FastAPI 主程序 (REST API + LangGraph 调度)
+│   └── requirements.txt       # 后端专用依赖
+├── frontend/                   # 前端页面
+│   └── index.html             # 单页应用 (Glassmorphism 风格)
+├── agents/                     # AI 多智能体系统
 │   ├── src/
-│   │   ├── agents/        # 各领域 Agent
-│   │   │   ├── fundamental_agent.py
-│   │   │   ├── technical_agent.py
-│   │   │   ├── value_agent.py
-│   │   │   ├── news_agent.py
-│   │   │   └── summary_agent.py
-│   │   ├── tools/         # MCP 工具集成
-│   │   └── utils/         # 工具函数
-│   └── .env               # 环境配置
-├── mcp-server/            # MCP 数据服务
-│   └── mcp_server.py      # A股数据工具集
-├── logs/                  # 日志目录
-├── requirements.txt       # Python 依赖
-├── start_server.bat       # Windows 启动脚本
-├── start_server.sh        # Linux/Mac 启动脚本
+│   │   ├── main.py            # Agent 编排主入口
+│   │   ├── agents/            # 各领域 Agent
+│   │   │   ├── fundamental_agent.py   # 基本面分析
+│   │   │   ├── technical_agent.py     # 技术面分析
+│   │   │   ├── value_agent.py         # 价值面分析
+│   │   │   ├── news_agent.py          # 新闻面分析
+│   │   │   └── summary_agent.py       # 汇总分析
+│   │   ├── tools/             # MCP 工具集成
+│   │   │   ├── mcp_client.py         # MCP 客户端
+│   │   │   └── openrouter_config.py  # OpenRouter 配置
+│   │   └── utils/             # 工具函数
+│   │       ├── execution_logger.py   # 执行日志
+│   │       ├── llm_clients.py        # LLM 客户端管理
+│   │       └── state_definition.py   # 状态定义
+│   ├── logs/                  # Agent 执行日志
+│   ├── reports/               # 生成的分析报告
+│   └── .env                   # 环境配置
+├── mcp-server/                 # MCP 数据服务
+│   ├── mcp_server.py          # MCP 服务器入口
+│   ├── src/
+│   │   ├── baostock_data_source.py   # Baostock 数据源
+│   │   ├── data_source_interface.py  # 数据源接口
+│   │   └── tools/             # MCP 工具集
+│   │       ├── stock_market.py       # 股票行情工具
+│   │       ├── financial_reports.py  # 财务报表工具
+│   │       ├── analysis.py           # 分析工具
+│   │       ├── indices.py            # 指数工具
+│   │       ├── macroeconomic.py      # 宏观经济工具
+│   │       ├── market_overview.py    # 市场概览工具
+│   │       └── news_crawler.py       # 新闻爬取工具
+│   └── pyproject.toml         # MCP 服务项目配置
+├── scripts/                    # 启动脚本
+│   ├── start_server.bat       # Windows 启动脚本
+│   └── start_server.sh        # Linux/Mac 启动脚本
+├── tests/                      # 测试套件
+│   ├── test_mcp_direct.py     # MCP 协议直连测试
+│   └── test_langchain_mcp.py  # LangChain MCP 适配测试
+├── logs/                       # 应用运行日志
+├── Nasdaq Sentiment Fine-tuning Task/  # Nasdaq 情感分析微调
+│   ├── data_process.py        # 数据处理
+│   ├── train_qwen_sentiment.py # 情感模型训练
+│   └── train_qwen_risk.py     # 风险模型训练
+├── requirements.txt            # Python 依赖
 └── README.md
 ```
 
@@ -224,16 +256,6 @@ GET /api/health
 | `OPENAI_API_KEY` | OpenAI API Key | 是 |
 | `OPENAI_BASE_URL` | API 基础 URL（支持自定义端点） | 否 |
 | `OPENAI_MODEL` | 使用的模型名称 | 否 |
-
-## 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 提交 Pull Request
 
 ## 许可证
 
