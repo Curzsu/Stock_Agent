@@ -114,6 +114,7 @@ nul
 # ========================================
 # Reports (optional - uncomment if needed)
 # ========================================
+agents/reports/
 # reports/
 # *.pdf
 # *.md.backup
