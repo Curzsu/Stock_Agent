@@ -420,6 +420,9 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         # 使用正则表达式截断"分析基准时间"那一行之后的内容
         final_report = truncate_report_at_baseline_time(final_report, current_time_info)
 
+        # 在一级标题后插入 [TOC] 目录
+        final_report = re.sub(r'^(#[^#].*)$', r'\1\n\n[TOC]', final_report, count=1, flags=re.MULTILINE)
+
         logger.info(
             f"{SUCCESS_ICON} SummaryAgent: Final report generated for {company_name} ({stock_code}).")
         logger.debug(f"Final report preview: {final_report[:300]}...")

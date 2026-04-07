@@ -49,7 +49,12 @@
       "Skill(superpowers:brainstorming)",
       "Bash(./venv/Scripts/python.exe:*)",
       "Bash(./venv/Scripts/pip.exe show:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(\"E:\\Curzsu\\Finance1\\venv\\Scripts\\python.exe\":*)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
