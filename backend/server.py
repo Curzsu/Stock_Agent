@@ -27,7 +27,7 @@ sys.path.insert(0, str(project_root / "agents"))
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 import baostock as bs
@@ -587,6 +587,23 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         # Extract results
         if final_state and final_state.get("data"):
             data = final_state["data"]
+            report_path = data.get("report_path", "")
+            pdf_path = data.get("pdf_path")  # May be None if background task not finished
+
+            # File-system-based PDF check: derive expected PDF path from MD path
+            # reports/md/xxx.md -> reports/pdf/xxx.pdf
+            pdf_available = False
+            if report_path:
+                md_dir = os.path.dirname(report_path)
+                md_base = os.path.splitext(os.path.basename(report_path))[0]
+                if os.path.basename(md_dir) == "md":
+                    expected_pdf_path = os.path.join(os.path.dirname(md_dir), "pdf", md_base + ".pdf")
+                else:
+                    expected_pdf_path = os.path.splitext(report_path)[0] + ".pdf"
+                pdf_available = os.path.exists(expected_pdf_path)
+                if pdf_available and not pdf_path:
+                    pdf_path = expected_pdf_path
+
             session.result = {
                 "company_name": company_name,
                 "stock_code": stock_code,
@@ -597,7 +614,9 @@ async def run_analysis_workflow(analysis_id: str, query: str):
                 "news_analysis": data.get("news_analysis", ""),
                 "final_report": data.get("final_report", ""),
                 "analysis_date": current_date_en,
-                "report_path": data.get("report_path", "")
+                "report_path": report_path,
+                "pdf_path": pdf_path or "",
+                "pdf_available": pdf_available
             }
 
     except Exception as e:
@@ -684,6 +703,53 @@ async def get_analysis_result(analysis_id: str):
         raise HTTPException(status_code=400, detail=f"Analysis not completed. Current status: {session.status}")
 
     return session.result
+
+@app.get("/api/report-pdf/{analysis_id}")
+async def download_report_pdf(analysis_id: str):
+    """Download the PDF report for a completed analysis.
+
+    Uses file-system-based check: derives the expected PDF path from the MD path
+    and checks os.path.exists(). Returns the file if ready, 404 if not yet generated.
+    """
+    if analysis_id not in analysis_sessions:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    session = analysis_sessions[analysis_id]
+
+    if session.status != "completed":
+        raise HTTPException(status_code=400, detail=f"Analysis not completed. Current status: {session.status}")
+
+    # Get report_path from result
+    report_path = ""
+    if session.result:
+        report_path = session.result.get("report_path", "")
+
+    if not report_path:
+        raise HTTPException(status_code=404, detail={"status": "unavailable", "message": "No report file found"})
+
+    # Derive PDF path from MD path (file-system-based approach)
+    # reports/md/xxx.md -> reports/pdf/xxx.pdf
+    md_dir = os.path.dirname(report_path)
+    md_base = os.path.splitext(os.path.basename(report_path))[0]
+    if os.path.basename(md_dir) == "md":
+        pdf_path = os.path.join(os.path.dirname(md_dir), "pdf", md_base + ".pdf")
+    else:
+        pdf_path = os.path.splitext(report_path)[0] + ".pdf"
+
+    if not os.path.exists(pdf_path):
+        raise HTTPException(status_code=404, detail={"status": "pending", "message": "PDF is still being generated"})
+
+    # Generate a user-friendly filename
+    company_name = (session.result and session.result.get("company_name", "")) or "report"
+    stock_code = (session.result and session.result.get("stock_code", "")) or ""
+    date_str = (session.result and session.result.get("analysis_date", "")) or ""
+    download_name = f"FINEX_{company_name}_{stock_code}_{date_str}.pdf"
+
+    return FileResponse(
+        path=pdf_path,
+        media_type="application/pdf",
+        filename=download_name
+    )
 
 @app.get("/api/history")
 async def get_analysis_history():

@@ -20,6 +20,12 @@ huggingface-hub>=0.34.0
 # Data tools
 baostock>=0.8.9
 
+# PDF Generation
+xhtml2pdf>=0.2.0
+markdown>=3.4
+# Optional: WeasyPrint for higher quality PDFs (requires GTK/Pango system libs)
+# weasyprint>=60.0
+
 # Utilities
 python-dotenv>=1.1.0
 uv>=0.8.0

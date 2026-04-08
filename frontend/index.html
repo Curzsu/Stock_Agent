@@ -1348,6 +1348,45 @@
       justify-content: center;
       gap: 1rem;
       margin-top: 3rem;
+      flex-wrap: wrap;
+    }
+
+    .report-btn-pdf {
+      background: linear-gradient(135deg, #c9a227 0%, #a8841e 100%);
+      color: var(--white);
+      border: none;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .report-btn-pdf:hover {
+      background: linear-gradient(135deg, #a8841e 0%, #8b6f18 100%);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(201, 162, 39, 0.3);
+    }
+
+    .report-btn-pdf.loading {
+      opacity: 0.7;
+      cursor: wait;
+    }
+
+    .report-btn-pdf.loading:hover {
+      transform: none;
+      box-shadow: none;
+    }
+
+    .pdf-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: pdfSpin 0.8s linear infinite;
+    }
+
+    @keyframes pdfSpin {
+      to { transform: rotate(360deg); }
     }
 
     .report-btn {
@@ -1680,6 +1719,10 @@
         <button class="report-btn report-btn-secondary" id="backToHomeBtn">
           <span>←</span>
           <span>返回首页</span>
+        </button>
+        <button class="report-btn report-btn-pdf loading" id="downloadPdfBtn" disabled>
+          <span class="pdf-spinner" id="pdfSpinner"></span>
+          <span id="pdfBtnText">正在生成 PDF...</span>
         </button>
         <button class="report-btn report-btn-primary" id="newAnalysisBtn">
           <span>新分析</span>
@@ -2180,6 +2223,8 @@
       }
     }
 
+    let pdfPollingTimer = null;
+
     function goToReport() {
       if (!currentResult) return;
 
@@ -2198,6 +2243,9 @@
       document.getElementById('reportTitle').textContent = currentResult.company_name || '分析报告';
       document.getElementById('reportCode').textContent = currentResult.stock_code || '-';
       document.getElementById('reportDate').textContent = currentResult.analysis_date || '-';
+
+      // Reset PDF button state
+      resetPdfButton();
 
       // Build report content
       const reportContent = document.getElementById('reportContent');
@@ -2249,11 +2297,90 @@
       }
 
       reportContent.innerHTML = html;
+
+      // Start polling for PDF availability
+      if (currentAnalysisId) {
+        pollPdfAvailability();
+      } else {
+        enablePdfButton();
+      }
+
       // 等待渲染完成后平滑滚动到报告区域顶部
       requestAnimationFrame(() => {
         reportSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
+
+    function resetPdfButton() {
+      const btn = document.getElementById('downloadPdfBtn');
+      const spinner = document.getElementById('pdfSpinner');
+      const btnText = document.getElementById('pdfBtnText');
+      btn.disabled = true;
+      btn.classList.add('loading');
+      spinner.style.display = 'inline-block';
+      btnText.textContent = '正在生成 PDF...';
+    }
+
+    function enablePdfButton() {
+      const btn = document.getElementById('downloadPdfBtn');
+      const spinner = document.getElementById('pdfSpinner');
+      const btnText = document.getElementById('pdfBtnText');
+      btn.disabled = false;
+      btn.classList.remove('loading');
+      spinner.style.display = 'none';
+      btnText.textContent = '下载 PDF 报告';
+    }
+
+    function pdfGenerationFailed() {
+      const btn = document.getElementById('downloadPdfBtn');
+      const spinner = document.getElementById('pdfSpinner');
+      const btnText = document.getElementById('pdfBtnText');
+      btn.disabled = true;
+      btn.classList.remove('loading');
+      spinner.style.display = 'none';
+      btnText.textContent = 'PDF 生成失败';
+      btn.style.opacity = '0.5';
+    }
+
+    async function pollPdfAvailability() {
+      if (pdfPollingTimer) clearTimeout(pdfPollingTimer);
+      if (!currentAnalysisId) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/report-pdf/${currentAnalysisId}`);
+        if (res.ok) {
+          // PDF is ready!
+          enablePdfButton();
+          return;
+        }
+
+        const data = await res.json();
+        const status = (data && data.status) || '';
+
+        if (status === 'pending') {
+          // Still generating, poll again in 3 seconds
+          pdfPollingTimer = setTimeout(pollPdfAvailability, 3000);
+        } else {
+          // unavailable or other error
+          pdfGenerationFailed();
+        }
+      } catch (e) {
+        // Network error, retry
+        pdfPollingTimer = setTimeout(pollPdfAvailability, 5000);
+      }
+    }
+
+    // PDF download button click handler
+    document.getElementById('downloadPdfBtn').addEventListener('click', () => {
+      if (!currentAnalysisId) return;
+      const url = `${API_BASE}/report-pdf/${currentAnalysisId}`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
 
     function runDemoSimulation() {
       const agents = ['fundamental', 'technical', 'value', 'news', 'summary'];
@@ -2296,12 +2423,14 @@
 
     // Report page buttons
     document.getElementById('backToHomeBtn').addEventListener('click', () => {
+      if (pdfPollingTimer) clearTimeout(pdfPollingTimer);
       const reportSection = document.getElementById('reportSection');
       reportSection.classList.remove('active');
       goHome();
     });
 
     document.getElementById('newAnalysisBtn').addEventListener('click', () => {
+      if (pdfPollingTimer) clearTimeout(pdfPollingTimer);
       const reportSection = document.getElementById('reportSection');
       reportSection.classList.remove('active');
       goHome();

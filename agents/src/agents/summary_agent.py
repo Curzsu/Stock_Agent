@@ -4,6 +4,7 @@ Summary Agent: Consolidates analyses from other agents into a final report.
 """
 import os
 import time
+import asyncio
 from typing import Dict, Any
 from langchain_openai import ChatOpenAI  # 恢复OpenAI导入
 import torch
@@ -13,6 +14,7 @@ import re
 from src.utils.state_definition import AgentState
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
 from src.utils.execution_logger import get_execution_logger
+from src.utils.pdf_converter import generate_pdf_background
 from dotenv import load_dotenv
 
 # 从.env文件加载环境变量
@@ -453,9 +455,9 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
 
         report_filename = f"{safe_file_prefix}_{timestamp}.md"
 
-        # 确保reports目录存在
+        # 确保reports/md目录存在
         reports_dir = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)))), "reports")
+            os.path.dirname(os.path.abspath(__file__)))), "reports", "md")
         os.makedirs(reports_dir, exist_ok=True)
 
         report_path = os.path.join(reports_dir, report_filename)
@@ -470,6 +472,26 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         # 返回更新后的状态，包含最终报告
         current_data["final_report"] = final_report
         current_data["report_path"] = report_path
+        current_data["pdf_path"] = None  # PDF not ready yet, generated in background
+
+        # Fire-and-forget: generate PDF in background without blocking
+        # Clean stock code for PDF cover page
+        clean_code_for_pdf = stock_code.replace("sh.", "").replace("sz.", "") if stock_code else ""
+        try:
+            asyncio.create_task(
+                generate_pdf_background(
+                    md_path=report_path,
+                    state_data=current_data,
+                    company_name=company_name if company_name != "Unknown Company" else "",
+                    stock_code=clean_code_for_pdf,
+                    analysis_date=current_data.get("current_date", "")
+                )
+            )
+            logger.info(f"{WAIT_ICON} SummaryAgent: PDF generation started in background for {report_path}")
+        except Exception as pdf_task_error:
+            # Never let PDF task creation crash the main agent
+            logger.error(f"{ERROR_ICON} SummaryAgent: Failed to create PDF background task: {pdf_task_error}")
+            current_data["pdf_path"] = None
 
         # 记录 Agent执行成功
         total_execution_time = time.time() - agent_start_time
@@ -531,9 +553,9 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
 
         report_filename = f"{safe_file_prefix}_{timestamp}.md"
 
-        # 确保reports目录存在
+        # 确保reports/md目录存在
         reports_dir = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)))), "reports")
+            os.path.dirname(os.path.abspath(__file__)))), "reports", "md")
         os.makedirs(reports_dir, exist_ok=True)
 
         report_path = os.path.join(reports_dir, report_filename)
