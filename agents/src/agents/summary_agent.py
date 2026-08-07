@@ -12,6 +12,7 @@ from src.utils.state_definition import AgentState
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
 from src.utils.execution_logger import get_execution_logger
 from src.utils.pdf_converter import generate_pdf_background
+from src.utils.agent_config import REACT_TIMEOUT_SECONDS
 from dotenv import load_dotenv
 
 # 从.env文件加载环境变量
@@ -406,7 +407,13 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
             llm_start_time = time.time()
 
             # 调用LLM生成最终报告
-            llm_message = await llm.ainvoke(summary_prompt_messages)
+            # 用 asyncio.wait_for 加超时（与 4 个分析 Agent 一致），防止 LLM API
+            # 挂起/连接被丢弃时永久等待。超时后抛 TimeoutError，由下方 except
+            # 分支降级生成错误报告，保证工作流能正常结束而非永久卡住。
+            llm_message = await asyncio.wait_for(
+                llm.ainvoke(summary_prompt_messages),
+                timeout=REACT_TIMEOUT_SECONDS
+            )
             final_report = llm_message.content
 
             # 记录LLM交互执行时间

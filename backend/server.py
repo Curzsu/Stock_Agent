@@ -23,7 +23,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "agents"))
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+import asyncio
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,6 +39,8 @@ load_dotenv(env_path, override=True)
 
 # LangGraph imports
 from src.utils.workflow_builder import build_workflow
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
 
 # Import agents (using src.* after adding agents to path)
 from src.agents.fundamental_agent import fundamental_agent
@@ -60,6 +63,19 @@ from src.utils.stock_extractor import extract_stock_info, COMPANY_CODE_MAP
 
 # Import MCP cleanup function
 from src.tools.mcp_client import close_mcp_client_sessions
+
+# 整个分析工作流的总超时（秒）。4 个分析 Agent 并行各最多
+# REACT_TIMEOUT_SECONDS(480s)，随后 summary Agent 再最多 480s，
+# 因此整体预算按两阶段上限 + 余量取 1200s，可通过环境变量覆盖。
+# 兜底保证工作流一定在有限时间内结束，避免 session 永久停在
+# "running" 导致前端分析页无限轮询卡死。
+WORKFLOW_TIMEOUT_SECONDS = float(os.getenv("WORKFLOW_TIMEOUT_SECONDS", "1200"))
+
+# 工作流启动前 baostock 股票校验的单次超时（秒）。baostock 是远程行情
+# 数据服务，服务器无响应时 bs.login/query 会无限阻塞（socket 层超时对其
+# 无效，已实测）。若不加限制，分析会永远卡在"等待中"（校验阶段在设置
+# progress=running 之前执行）。超时后置为明确的错误状态，而非无限等待。
+BAOSTOCK_TIMEOUT_SECONDS = float(os.getenv("BAOSTOCK_TIMEOUT_SECONDS", "30"))
 
 # ============================================================================
 # FastAPI Application Setup
@@ -131,6 +147,60 @@ class AnalysisStatus(BaseModel):
     error: Optional[str] = None
     query: Optional[str] = None
     company_name: Optional[str] = None
+
+
+class ApiConfigRequest(BaseModel):
+    """Request model for API config endpoint (所有字段可选,未传则保留原值)"""
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+
+
+def mask_api_key(key: str) -> str:
+    """脱敏 API key:保留前3后4,中间用 *** 代替。短于7位则全掩码。"""
+    if not key:
+        return ""
+    if len(key) <= 7:
+        return "***"
+    return f"{key[:3]}***{key[-4:]}"
+
+
+def update_env_file(path, updates: dict) -> None:
+    """
+    更新 .env 文件中指定 key 的值(原地替换,缺则追加)。
+    保留注释和空行。只更新 updates 里出现的 key。
+
+    Args:
+        path: .env 文件路径
+        updates: {env_key: new_value} 只含需要更新的项
+    """
+    remaining = dict(updates)  # 待写入的 key(文件里没有的会追加)
+    out_lines = []
+
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                # 跳过空行和注释,原样保留
+                if not stripped or stripped.startswith("#"):
+                    out_lines.append(line)
+                    continue
+                # 解析 KEY=VALUE
+                if "=" in stripped:
+                    key = stripped.split("=", 1)[0].strip()
+                    if key in updates:
+                        out_lines.append(f"{key}={updates[key]}\n")
+                        remaining.pop(key, None)
+                        continue
+                out_lines.append(line)
+
+    # 文件里没有的 key,追加到末尾
+    for key, value in remaining.items():
+        out_lines.append(f"{key}={value}\n")
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.writelines(out_lines)
+
 
 # ============================================================================
 # In-memory storage for analysis sessions
@@ -208,7 +278,16 @@ async def run_analysis_workflow(analysis_id: str, query: str):
 
         # 校验：提取到公司名但无法匹配到股票代码，尝试用 baostock 在线查找
         if company_name and not stock_code:
-            stock_code, real_name = lookup_stock_code_by_name(company_name)
+            try:
+                stock_code, real_name = await asyncio.wait_for(
+                    asyncio.to_thread(lookup_stock_code_by_name, company_name),
+                    timeout=BAOSTOCK_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                session.status = "error"
+                session.error = f"行情数据服务（baostock）连接超时，无法查询股票代码，请检查网络后重试。"
+                session.end_time = datetime.now().isoformat()
+                return
             if stock_code:
                 if real_name:
                     company_name = real_name
@@ -228,7 +307,16 @@ async def run_analysis_workflow(analysis_id: str, query: str):
 
         # 用 baostock 验证股票代码是否真实存在（最终防线）
         full_code = f"{'sh' if stock_code.startswith('6') else 'sz'}.{stock_code}"
-        exists, real_name = verify_stock_code_exists(full_code)
+        try:
+            exists, real_name = await asyncio.wait_for(
+                asyncio.to_thread(verify_stock_code_exists, full_code),
+                timeout=BAOSTOCK_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            session.status = "error"
+            session.error = f"行情数据服务（baostock）连接超时，无法校验股票代码，请检查网络后重试。"
+            session.end_time = datetime.now().isoformat()
+            return
         if not exists:
             session.status = "error"
             session.error = f"股票代码「{full_code}」不存在或已退市，请确认后重试。"
@@ -298,7 +386,13 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         }
 
         # Execute workflow
-        final_state = await app_workflow.ainvoke(initial_state)
+        # 加总超时兜底：即使某个环节（LLM 调用、MCP/baostock 工具、ReAct 死循环）
+        # 意外挂起，也能强制工作流结束，session 一定进入终态，前端不会永久卡住。
+        # 超时后抛 TimeoutError 由下方 except 捕获置为 error。
+        final_state = await asyncio.wait_for(
+            app_workflow.ainvoke(initial_state),
+            timeout=WORKFLOW_TIMEOUT_SECONDS
+        )
 
         # Update status
         session.status = "completed"
@@ -334,6 +428,11 @@ async def run_analysis_workflow(analysis_id: str, query: str):
                 "pdf_available": pdf_available
             }
 
+    except asyncio.TimeoutError:
+        session.status = "error"
+        session.error = f"分析超时（超过 {WORKFLOW_TIMEOUT_SECONDS:.0f} 秒），请稍后重试。"
+        session.end_time = datetime.now().isoformat()
+
     except Exception as e:
         session.status = "error"
         session.error = str(e)
@@ -361,7 +460,7 @@ async def serve_frontend():
     raise HTTPException(status_code=404, detail="Frontend not found")
 
 @app.post("/api/analyze")
-async def start_analysis(request: AnalyzeRequest, background_tasks: BackgroundTasks):
+async def start_analysis(request: AnalyzeRequest):
     """Start a new analysis task"""
     import uuid
 
@@ -383,8 +482,11 @@ async def start_analysis(request: AnalyzeRequest, background_tasks: BackgroundTa
 
     analysis_sessions[analysis_id] = session
 
-    # Run analysis in background
-    background_tasks.add_task(run_analysis_workflow, analysis_id, request.query)
+    # 用 asyncio.create_task 在事件循环上并发调度,而非 BackgroundTasks。
+    # BackgroundTasks 会在响应发送后 await 该协程,期间阻塞事件循环,
+    # 导致 /api/status 轮询请求无法被处理(服务器看起来"卡住")。
+    # create_task 让工作流与请求处理并发执行,轮询能正常响应。
+    asyncio.create_task(run_analysis_workflow(analysis_id, request.query))
 
     return {
         "analysis_id": analysis_id,
@@ -478,6 +580,106 @@ async def get_analysis_history():
         history.append(entry)
 
     return {"history": history}
+
+@app.get("/api/config")
+async def get_api_config():
+    """返回当前 API 配置(api_key 脱敏显示)。"""
+    return {
+        "api_key": mask_api_key(os.getenv("OPENAI_COMPATIBLE_API_KEY", "")),
+        "base_url": os.getenv("OPENAI_COMPATIBLE_BASE_URL", ""),
+        "model": os.getenv("OPENAI_COMPATIBLE_MODEL", ""),
+    }
+
+# /api/config 写入的环境变量名(只允许更新这三个)
+_CONFIG_ENV_KEYS = (
+    "OPENAI_COMPATIBLE_API_KEY",
+    "OPENAI_COMPATIBLE_BASE_URL",
+    "OPENAI_COMPATIBLE_MODEL",
+)
+
+@app.post("/api/config")
+async def update_api_config(config: ApiConfigRequest):
+    """更新 API 配置:同时写 os.environ(立即生效)和 .env(持久化)。
+
+    未传的字段(None)保留原值,只更新显式传入的字段。
+    """
+    # 收集需要更新的项(非 None)
+    updates = {}
+    if config.api_key is not None:
+        updates["OPENAI_COMPATIBLE_API_KEY"] = config.api_key
+    if config.base_url is not None:
+        updates["OPENAI_COMPATIBLE_BASE_URL"] = config.base_url
+    if config.model is not None:
+        updates["OPENAI_COMPATIBLE_MODEL"] = config.model
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="未提供任何要更新的配置项")
+
+    # 1. 写 os.environ -- 立即生效(agents 在 call-time 用 os.getenv 读取)
+    for key, value in updates.items():
+        os.environ[key] = value
+
+    # 2. 写 .env 文件 -- 持久化(重启后 load_dotenv 能读到)
+    try:
+        update_env_file(env_path, updates)
+    except Exception as e:
+        # .env 写入失败不影响运行时生效,但要告知用户
+        return {
+            "status": "warning",
+            "message": f"运行时已生效,但 .env 持久化失败: {e}",
+            "api_key": mask_api_key(os.getenv("OPENAI_COMPATIBLE_API_KEY", "")),
+            "base_url": os.getenv("OPENAI_COMPATIBLE_BASE_URL", ""),
+            "model": os.getenv("OPENAI_COMPATIBLE_MODEL", ""),
+        }
+
+    return {
+        "status": "ok",
+        "message": "配置已更新",
+        "api_key": mask_api_key(os.getenv("OPENAI_COMPATIBLE_API_KEY", "")),
+        "base_url": os.getenv("OPENAI_COMPATIBLE_BASE_URL", ""),
+        "model": os.getenv("OPENAI_COMPATIBLE_MODEL", ""),
+    }
+
+@app.post("/api/config/test")
+async def test_api_config_connectivity(config: Optional[ApiConfigRequest] = None):
+    """测试 API 配置的连通性。
+
+    优先用请求体里传入的表单值（前端测试按钮会把当前输入的
+    base_url/model 传过来，让反馈与用户正在填的值一致）；未传的字段
+    回退到 os.environ（上次已保存的配置）。
+
+    返回 {ok: bool, message|error: str}。
+    """
+    api_key = config.api_key if config and config.api_key else os.getenv("OPENAI_COMPATIBLE_API_KEY")
+    base_url = config.base_url if config and config.base_url else os.getenv("OPENAI_COMPATIBLE_BASE_URL")
+    model_name = config.model if config and config.model else os.getenv("OPENAI_COMPATIBLE_MODEL")
+
+    if not all([api_key, base_url, model_name]):
+        return {
+            "ok": False,
+            "error": "配置不完整:缺少 API Key / Base URL / Model 之一,请先保存完整配置",
+        }
+
+    try:
+        llm = ChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=0,
+            max_tokens=10,
+        )
+        # 发一个最小请求验证连通性
+        resp = await llm.ainvoke([HumanMessage(content="ping")])
+        reply = getattr(resp, "content", "") or str(resp)
+        return {
+            "ok": True,
+            "message": f"连通正常,模型 {model_name} 已响应(回复: {reply[:50]})",
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": f"连通失败: {e}",
+        }
 
 @app.get("/api/health")
 async def health_check():
