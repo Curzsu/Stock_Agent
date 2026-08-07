@@ -51,6 +51,9 @@ from src.agents.summary_agent import summary_agent
 # Import state definition
 from src.utils.state_definition import AgentState
 
+# Import baostock thread-safe helper (P0-2: 修复全局登录并发竞态)
+from src.utils.baostock_helper import ensure_logged_in, safe_query
+
 # Import MCP cleanup function
 from src.tools.mcp_client import close_mcp_client_sessions
 
@@ -386,12 +389,13 @@ def lookup_stock_code_by_name(company_name: str) -> tuple:
     """
     用 baostock 根据公司名称查找股票代码（在线查找，覆盖所有A股）。
     返回 (stock_code: str or None, stock_name: str or None)
+
+    使用进程级单例登录 + 互斥锁，避免并发请求互相踢掉 baostock 全局 session。
     """
     try:
-        bs.login()
-        rs = bs.query_stock_basic()
+        ensure_logged_in()
+        rs = safe_query(lambda: bs.query_stock_basic())
         if rs.error_code != '0':
-            bs.logout()
             return None, None
 
         while rs.next():
@@ -399,40 +403,30 @@ def lookup_stock_code_by_name(company_name: str) -> tuple:
             code_full = row[rs.fields.index('code')]
             name = row[rs.fields.index('code_name')]
             if name == company_name:
-                bs.logout()
                 pure_code = code_full.split('.')[1] if '.' in code_full else code_full
                 return pure_code, name
 
-        bs.logout()
         return None, None
     except Exception as e:
         print(f"Warning: baostock name lookup failed: {e}")
-        try:
-            bs.logout()
-        except:
-            pass
         return None, None
 
 def verify_stock_code_exists(stock_code: str) -> tuple:
     """
     用 baostock 验证股票代码是否真实存在。
     返回 (exists: bool, stock_name: str or None)
+
+    使用进程级单例登录 + 互斥锁，避免并发请求互相踢掉 baostock 全局 session。
     """
     try:
-        bs.login()
-        rs = bs.query_stock_basic(code=stock_code)
+        ensure_logged_in()
+        rs = safe_query(lambda: bs.query_stock_basic(code=stock_code))
         if rs.error_code == '0' and rs.next():
             name = rs.get_row_data()[rs.fields.index('code_name')] if 'code_name' in rs.fields else None
-            bs.logout()
             return True, name
-        bs.logout()
         return False, None
     except Exception as e:
         print(f"Warning: baostock verify failed: {e}")
-        try:
-            bs.logout()
-        except:
-            pass
         # 验证失败时不阻断流程，让 agent 自行处理
         return True, None
 
