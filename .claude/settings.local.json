@@ -1,7 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "Bash(\"E:\\Curzsu\\Finance1\\venv\\Scripts\\python.exe\":*)"
+      "Bash(\"E:\\Curzsu\\Finance1\\venv\\Scripts\\python.exe\":*)",
+      "Bash(E:\\Curzsu\\Finance1\\venv\\Scripts\\python.exe:*)",
+      "WebSearch",
+      "Bash(del:*)",
+      "Bash(cmd /c \"del /q E:\\Curzsu\\Finance1\\agents\\reports\\test_cover.html 2>nul && echo cleaned\")",
+      "Bash(cmd /c \"E:\\Curzsu\\Finance1\\venv\\Scripts\\python.exe E:\\Curzsu\\Finance1\\temp_update_cover.py\")",
+      "Bash(cmd:*)",
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(netsh:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

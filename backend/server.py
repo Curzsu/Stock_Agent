@@ -73,6 +73,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("shutdown")
+async def _shutdown_cleanup_mcp():
+    """应用关停时统一清理 MCP 客户端缓存状态。
+
+    MCP 工具列表在进程级缓存、跨请求复用，只在应用关闭时清理一次。
+    工具对象每次调用自行管理 stdio 子进程生命周期，无需逐请求清理。
+    """
+    try:
+        await close_mcp_client_sessions()
+    except Exception as e:
+        print(f"Warning: MCP cleanup error on shutdown: {e}")
+
 # ============================================================================
 # Data Models
 # ============================================================================
@@ -625,11 +638,13 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         session.end_time = datetime.now().isoformat()
 
     finally:
-        # 清理MCP客户端连接，确保下次分析时重新建立连接
-        try:
-            await close_mcp_client_sessions()
-        except Exception as cleanup_error:
-            print(f"Warning: MCP cleanup error: {cleanup_error}")
+        # 不在请求级别清理 MCP 客户端缓存。
+        # 原因：MCP 工具列表是进程级缓存（见 mcp_client.py 说明），工具对象
+        # 每次被调用时都会自行启动独立 stdio 子进程并在调用后关闭，不持有
+        # 长驻连接。因此请求级 close 既无隔离收益，又会清掉缓存导致下一个
+        # 请求要重新加载工具列表（启动子进程 + 握手 + list_tools）。
+        # MCP 客户端的统一清理放在 FastAPI shutdown 事件中执行。
+        pass
 
 # ============================================================================
 # API Endpoints

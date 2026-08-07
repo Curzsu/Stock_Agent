@@ -15,7 +15,7 @@ import asyncio
 import glob
 from typing import Optional
 
-from src.utils.pdf_styles import get_report_html
+from src.utils.pdf_styles import render_report_html, extract_title_info
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
 
 logger = setup_logger(__name__)
@@ -321,20 +321,20 @@ def convert_md_to_pdf(md_path: str, company_name: str = "",
             h1_match = re.search(r'^#\s+(.+?)(?:\s*综合分析报告)?$', md_content, re.MULTILINE)
             if h1_match:
                 title = h1_match.group(1).strip()
-                code_match = re.search(r'[（(](\d{5,6})[)）]', title)
-                if code_match and not stock_code:
-                    stock_code = code_match.group(1)
-                name_match = re.sub(r'[（(]\d{5,6}[)）]', '', title).strip()
-                if name_match and not company_name:
-                    company_name = name_match
+                # Use the shared parser so the extraction logic stays in sync
+                # with parse_md_to_sections (handles sh./sz./bare code formats).
+                info = extract_title_info(title)
+                if not stock_code:
+                    stock_code = info["stock_code"]
+                if not company_name:
+                    company_name = info["company_name"]
 
-        # Build styled HTML (pass engine name for CSS compatibility)
-        html_content = get_report_html(
+        # Build styled HTML via Jinja2 template
+        html_content = render_report_html(
             md_content=md_content,
             company_name=company_name,
             stock_code=stock_code,
             analysis_date=analysis_date,
-            engine=_PDF_ENGINE
         )
 
         # Render PDF using the selected engine

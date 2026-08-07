@@ -1,18 +1,54 @@
+"""
+MCP 客户端模块 —— 加载并缓存 MCP 服务器提供的 LangChain 兼容工具。
+
+设计要点（基于 langchain-mcp-adapters 源码验证后的结论）：
+
+1. `MultiServerMCPClient` 本身是无状态的：它只保存 connections 配置，
+   不持有任何活跃 session。`get_tools()` 只是临时开一个 session 列出工具
+   并立即关闭。
+
+2. 返回的 `StructuredTool` 对象内部闭包捕获的是 `connection` 配置，
+   不是活跃 session。每次工具被真正调用时，`call_tool` 会
+   `async with create_session(connection)` 现场启动一个全新的 stdio
+   子进程 -> 握手 -> 调用 -> 关闭子进程。
+
+   因此工具调用天然是相互隔离的，不存在「并发请求复用同一 stdio 管道
+   导致响应串台」的问题。
+
+3. 本模块缓存的是「工具列表（tool 对象）」而非「活跃连接」。工具对象
+   每次被调用都会自己开新子进程，所以缓存它们是安全的、进程级长驻即可。
+
+历史 bug 修复：
+- 失败时不再缓存空列表 `_mcp_tools = []`，否则一次超时会让整个进程
+  永久瘫痪（fast path `if _mcp_tools is not None` 会一直返回空列表），
+  必须重启才能恢复。现在失败时返回 `[]` 但不写缓存，下次调用会重试。
+- `close_mcp_client_sessions()` 现在用锁保护、原子地清空全部全局状态，
+  避免并发下部分清空导致的状态不一致。它只在应用关停时调用，
+  不应在每次请求结束时调用（那样会让每个请求都重新加载工具列表）。
+"""
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from src.utils.logging_config import setup_logger, SUCCESS_ICON, ERROR_ICON, WAIT_ICON
 from src.tools.mcp_config import SERVER_CONFIGS
 import asyncio
 import threading
-import json
 
 logger = setup_logger(__name__)
 
-# Module-level state protected by threading lock for process-wide synchronization
-_mcp_client_instance = None
+# ============================================================================
+# 进程级缓存状态
+# ============================================================================
+# 缓存的工具列表。None 表示尚未加载；list 表示已加载（包括空列表，但空列表
+# 只在「服务器确实没有工具」时才缓存，加载失败绝不缓存，见下方逻辑）。
 _mcp_tools = None
-_mcp_init_lock = None  # asyncio.Lock created lazily
-_mcp_init_lock_loop = None  # Track which event loop created the lock
-_mcp_init_lock_mutex = threading.Lock()  # Thread-safe mutex for lock creation
+# MultiServerMCPClient 引用。该 client 无状态，保留引用仅为 close 时清理。
+_mcp_client_instance = None
+# 保护初始化的 asyncio 锁。按事件循环隔离（一个循环一把锁）。
+_mcp_init_lock = None
+_mcp_init_lock_loop = None
+# 保护「锁创建」本身的线程锁，确保每个事件循环只创建一把 asyncio.Lock。
+_mcp_init_lock_mutex = threading.Lock()
+# 保护「关闭」过程的线程锁，避免 close 与 get_mcp_tools 并发交错。
+_mcp_close_mutex = threading.Lock()
 
 
 def print_tool_details(tools):
@@ -30,40 +66,42 @@ def print_tool_details(tools):
                     logger.info(f"     {attr}: {attr_value}")
 
         logger.info(f"     工具类型: {type(tool)}")
-        # logger.info(f"     所有属性: {dir(tool)}")
         logger.info("     " + "-" * 50)
 
 
 async def get_mcp_tools():
     """
-    使用定义的服务器配置初始化MultiServerMCPClient，
-    并从a-share-mcp-v2服务器获取可用工具。
+    获取 MCP 服务器提供的 LangChain 兼容工具列表，带进程级缓存。
 
-    返回:
-        list: 从MCP服务器加载的LangChain兼容工具列表。
-              如果初始化或工具加载失败，则返回空列表。
+    缓存策略：
+    - 首次调用时加载工具列表并缓存，后续调用直接返回缓存。
+    - 加载失败时不缓存结果（返回空列表但不写入缓存），保证下次调用会重试，
+      避免「一次超时 -> 进程永久瘫痪」的故障模式。
+    - 服务器确实返回空工具列表时（正常情况但无可控工具），按空列表缓存，
+      避免反复无意义地尝试。
+
+    Returns:
+        list: 从 MCP 服务器加载的 LangChain 兼容工具列表。
+              如果初始化或工具加载失败，返回空列表。
     """
     global _mcp_client_instance, _mcp_tools, _mcp_init_lock, _mcp_init_lock_loop
 
-    # Fast path: return cached tools without acquiring lock
+    # Fast path: 已缓存则直接返回（持有缓存期间不持锁，工具调用各自开子进程）
     if _mcp_tools is not None:
-        logger.info(f"{SUCCESS_ICON} Returning cached MCP tools.")
+        logger.info(f"{SUCCESS_ICON} Returning cached MCP tools ({len(_mcp_tools)} tools).")
         return _mcp_tools
 
-    # Get current event loop
+    # 获取当前事件循环，按循环创建 asyncio.Lock
     current_loop = asyncio.get_running_loop()
 
-    # Create lock atomically using threading.Lock
-    # This ensures only ONE asyncio.Lock is created per event loop
     with _mcp_init_lock_mutex:
-        if _mcp_init_lock is None or _mcp_init_lock_loop != current_loop:
+        if _mcp_init_lock is None or _mcp_init_lock_loop is not current_loop:
             logger.info(f"{WAIT_ICON} Creating new async lock for event loop {id(current_loop)}")
             _mcp_init_lock = asyncio.Lock()
             _mcp_init_lock_loop = current_loop
 
-    # Now use the (single) asyncio.Lock to synchronize initialization
     async with _mcp_init_lock:
-        # Double-check after acquiring lock (another coroutine might have initialized)
+        # 双重检查：持锁后再次确认（可能已被其他协程初始化）
         if _mcp_tools is not None:
             logger.info(f"{SUCCESS_ICON} Returning MCP tools (initialized by another coroutine).")
             return _mcp_tools
@@ -71,72 +109,88 @@ async def get_mcp_tools():
         logger.info(
             f"{WAIT_ICON} Initializing MultiServerMCPClient with config: {SERVER_CONFIGS}")
         try:
-            _mcp_client_instance = MultiServerMCPClient(SERVER_CONFIGS)
+            client = MultiServerMCPClient(SERVER_CONFIGS)
 
             logger.info(
                 f"{WAIT_ICON} Fetching tools from MCP server 'a_share_mcp_v2'...")
-            # The get_tools() method is asynchronous with 60 second timeout
+            # get_tools() 会临时开一个 stdio session 列出工具后立即关闭
             try:
                 loaded_tools = await asyncio.wait_for(
-                    _mcp_client_instance.get_tools(),
+                    client.get_tools(),
                     timeout=60.0
                 )
             except asyncio.TimeoutError:
+                # 关键修复：超时不缓存，下次调用可重试
                 logger.error(
-                    f"{ERROR_ICON} Timeout (60s) waiting for MCP server to respond. The server may be stuck or not starting.")
-                _mcp_tools = []  # Cache empty list on timeout
+                    f"{ERROR_ICON} Timeout (60s) waiting for MCP server to respond. "
+                    f"The server may be stuck or not starting. Result NOT cached — next call will retry.")
                 return []
 
             if not loaded_tools:
+                # 服务器连通但没有工具：这是「确定的无工具」状态，可以缓存空列表
+                # 以避免反复尝试；但仍记录警告便于排查配置问题。
                 logger.warning(
-                    f"{ERROR_ICON} No tools loaded from MCP server 'a_share_mcp_v2'. Check server logs and configuration.")
-                _mcp_tools = []  # Cache empty list on failure to load
+                    f"{ERROR_ICON} No tools loaded from MCP server 'a_share_mcp_v2'. "
+                    f"Check server logs and configuration. Caching empty list.")
+                _mcp_tools = []
+                _mcp_client_instance = client
                 return []
 
+            # 成功加载：缓存工具列表与 client 引用
             _mcp_tools = loaded_tools
+            _mcp_client_instance = client
             logger.info(
                 f"{SUCCESS_ICON} Successfully loaded {len(_mcp_tools)} tools from 'a_share_mcp_v2'.")
-
-            # # 打印工具名称列表
-            # tool_names = [tool.name for tool in _mcp_tools]
-            # logger.info(f"工具名称列表: {tool_names}")
-
-            # 打印详细的工具信息
-            # print_tool_details(_mcp_tools)
 
             return _mcp_tools
 
         except Exception as e:
+            # 关键修复：异常不缓存，下次调用可重试
             logger.error(
-                f"{ERROR_ICON} Failed to initialize MCP client or load tools: {e}", exc_info=True)
-            _mcp_tools = []  # Cache empty list on failure
+                f"{ERROR_ICON} Failed to initialize MCP client or load tools: {e}. "
+                f"Result NOT cached — next call will retry.", exc_info=True)
             return []
 
 
 async def close_mcp_client_sessions():
     """
-    关闭MultiServerMCPClient管理的任何开放会话。
-    如果必要，应在应用程序关闭时调用此函数。
+    关闭并清理 MCP 客户端缓存的全部状态。
+
+    重要：本函数应只在应用关停时调用（例如 FastAPI 的 shutdown 事件），
+    不应在每次分析请求结束时调用。原因：
+    - 工具列表是进程级缓存，清掉后下一个请求要重新启动 MCP 子进程、
+      握手、列出工具，带来数秒无谓开销。
+    - 工具对象每次调用都自己开新子进程，不持有长驻连接，所以请求级
+      清理既无隔离收益，又损失缓存命中率。
+
+    本函数用线程锁保护，保证「清空 client 引用 + 清空工具缓存 + 重置锁」
+    是原子操作，避免与 `get_mcp_tools` 并发时出现部分清空的不一致状态。
     """
     global _mcp_client_instance, _mcp_tools, _mcp_init_lock, _mcp_init_lock_loop
-    if _mcp_client_instance:
+
+    with _mcp_close_mutex:
+        if _mcp_client_instance is None and _mcp_tools is None:
+            logger.info("MCP client was not initialized, no sessions to close.")
+            return
+
         logger.info(f"{WAIT_ICON} Closing MCP client sessions...")
-        try:
-            # 尝试调用close方法（如果存在）
-            if hasattr(_mcp_client_instance, 'close'):
-                await _mcp_client_instance.close()
-            logger.info(
-                f"{SUCCESS_ICON} MCP client sessions closed successfully.")
-        except Exception as e:
-            logger.error(
-                f"{ERROR_ICON} Error during MCP client session cleanup: {e}", exc_info=True)
-        finally:
-            _mcp_client_instance = None   # 允许重新初始化
-            _mcp_tools = None             # 清除缓存的工具
-            _mcp_init_lock = None         # 重置锁
-            _mcp_init_lock_loop = None
-    else:
-        logger.info("MCP client was not initialized, no sessions to close.")
+        # MultiServerMCPClient 不持有活跃 session（工具调用各自管理子进程），
+        # 但若该版本提供了 close 方法，仍调用以释放可能持有的资源。
+        if _mcp_client_instance is not None:
+            try:
+                if hasattr(_mcp_client_instance, 'close'):
+                    await _mcp_client_instance.close()
+                logger.info(
+                    f"{SUCCESS_ICON} MCP client sessions closed successfully.")
+            except Exception as e:
+                logger.error(
+                    f"{ERROR_ICON} Error during MCP client session cleanup: {e}", exc_info=True)
+
+        # 原子地清空全部全局状态，允许后续重新初始化
+        _mcp_client_instance = None
+        _mcp_tools = None
+        _mcp_init_lock = None
+        _mcp_init_lock_loop = None
 
 
 # 测试此模块的示例（可选，用于直接执行）

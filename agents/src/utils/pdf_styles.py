@@ -1,571 +1,499 @@
 """
-PDF Styles Module - Professional CSS template for financial analysis reports.
+PDF Styles Module - Professional Jinja2 HTML template for financial analysis reports.
 
-This module provides the CSS stylesheet and HTML wrapper used by pdf_converter.py
-to generate authoritative, investment-bank-quality PDF reports.
+Industry-standard approach:
+  1. Parse MD report into structured sections (title, summary, analysis chapters)
+  2. Fill data into a professional research report HTML template via Jinja2
+  3. Render HTML to PDF
 
-Separate from conversion logic so visual design can be iterated without touching Python code.
-
-Provides two CSS variants:
-- PDF_CSS_WEASYPRINT: Full-featured CSS for WeasyPrint (with @page sub-rules)
-- PDF_CSS_XHTML2PDF: Compatible CSS for xhtml2pdf (simple @page only)
+Design reference: Institutional Research Report Style (Goldman Sachs / JP Morgan / McKinsey)
+  - Full-bleed dark navy cover with strong visual hierarchy
+  - Minimalist, typography-driven design inspired by The Economist
+  - Left-aligned bold title with generous whitespace
+  - Structured info grid with clean separators
+  - Accent lines and geometric details for authority
+  - Compact body layout without forced page breaks between sections
+  - Chinese numbering for major sections (一、二、三...)
+  - Clean section headers with bottom border, no background fill
+  - Tight line spacing for information density
+  - Color palette: deep navy (#0c1e3a), steel blue (#1a3a6b), accent gold (#c9a84c)
 """
 
+import re
+from typing import Dict, List, Any
+
+
+# Chinese number mapping for section numbering
+_CN_NUMS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+            "十一", "十二", "十三", "十四", "十五",
+            "十六", "十七", "十八", "十九", "二十",
+            "二十一", "二十二", "二十三", "二十四", "二十五"]
+
+
 # ============================================================================
-# @page rules for each engine
+# Shared title parser -- handles sh./sz./bare code formats
 # ============================================================================
 
-# Full @page for WeasyPrint - supports sub-rules like @top-left, @bottom-center etc.
-_PAGE_CSS_WEASYPRINT = """
-@page {
-    size: A4;
-    margin: 2.2cm 2cm 2.5cm 2cm;
-
-    @top-left {
-        content: "FINEX Research";
-        font-size: 8pt;
-        color: #888888;
-        font-family: "Noto Sans SC", "Microsoft YaHei", "SimSun", sans-serif;
-    }
-    @top-right {
-        content: "Confidential";
-        font-size: 8pt;
-        color: #888888;
-        font-family: "Noto Sans SC", "Microsoft YaHei", "SimSun", sans-serif;
-    }
-    @bottom-center {
-        content: counter(page);
-        font-size: 9pt;
-        color: #555555;
-        font-family: "Noto Sans SC", "Microsoft YaHei", "SimSun", sans-serif;
-    }
-    @bottom-right {
-        content: "FINEX | Financial Intelligence";
-        font-size: 7pt;
-        color: #999999;
-        font-family: "Noto Sans SC", "Microsoft YaHei", "SimSun", sans-serif;
-    }
-}
-
-@page :first {
-    margin-top: 0;
-    margin-bottom: 0;
-    @top-left { content: none; }
-    @top-right { content: none; }
-    @bottom-center { content: none; }
-    @bottom-right { content: none; }
-}"""
-
-# Compatible @page for xhtml2pdf - minimal, no sub-rules
-_PAGE_CSS_XHTML2PDF = """
-@page {
-    size: A4;
-    margin: 2cm;
-}
-"""
+# Matches a stock code in parentheses, with optional sh./sz. exchange prefix.
+# Covers: (sh.601998) / (sz.002594) / (601998) / （600519）
+_STOCK_CODE_RE = re.compile(r'[（(](?:s[hz]\.)?(\d{5,6})[)）]')
 
 
-def _build_font_face_css() -> str:
+def extract_title_info(raw_title: str) -> Dict[str, str]:
+    """Extract company_name and stock_code from a report H1 title.
+
+    Handles the three real-world title formats produced by the system:
+      - "中信银行(sh.601998) 综合分析报告"   (sh. prefix)
+      - "比亚迪(sz.002594) 综合分析报告"     (sz. prefix)
+      - "平安银行(000001) 综合分析报告"      (bare code)
+
+    Returns a dict with 'company_name' and 'stock_code' (empty strings if not found).
     """
-    Build @font-face declarations using absolute file paths to system Chinese fonts.
+    code_match = _STOCK_CODE_RE.search(raw_title)
+    stock_code = code_match.group(1) if code_match else ""
 
-    xhtml2pdf requires @font-face with src:url() pointing to real font files.
-    Without this, all CJK characters render as 'n' or blank squares.
+    # Strip the parenthesized code (with any prefix) and the report-type suffix
+    company_name = _STOCK_CODE_RE.sub('', raw_title)
+    company_name = company_name.replace('综合分析报告', '').strip()
+
+    return {"company_name": company_name, "stock_code": stock_code}
+
+
+# ============================================================================
+# MD -> Structured Data Parser
+# ============================================================================
+
+def parse_md_to_sections(md_content: str) -> Dict[str, Any]:
     """
-    import os
-    import platform
+    Parse a FINEX markdown report into structured sections for template filling.
+    """
+    import markdown as md_lib
 
-    # Font search locations by OS
-    if platform.system() == "Windows":
-        font_dir = r"C:\Windows\Fonts"
-    elif platform.system() == "Darwin":  # macOS
-        font_dir = "/System/Library/Fonts"
-    else:  # Linux
-        font_dir = "/usr/share/fonts"
+    # Extract H1 title
+    h1_match = re.search(r'^#\s+(.+)$', md_content, re.MULTILINE)
+    raw_title = h1_match.group(1).strip() if h1_match else "金融分析报告"
 
-    # (filename, css_font_name, weight)
-    font_defs = [
-        ("simhei.ttf",  "SimHei", "bold"),
-        ("simsun.ttc",  "SimSun", "normal"),
-        ("simfang.ttf", "SimFang", "normal"),
-        ("simkai.ttf",  "SimKai", "normal"),
-        ("msyh.ttc",    "MicrosoftYaHei", "normal"),
-        ("msyhbd.ttc",  "MicrosoftYaHei", "bold"),
-        ("NotoSansSC-VF.ttf", "NotoSansSC", "normal"),
-        ("STSong.ttf",  "STSong", "normal"),
-    ]
+    # Extract company_name / stock_code via the shared parser
+    info = extract_title_info(raw_title)
+    company_name = info["company_name"]
+    stock_code = info["stock_code"]
 
-    css_parts = []
-    for filename, name, weight in font_defs:
-        path = os.path.join(font_dir, filename)
-        if os.path.exists(path):
-            # xhtml2pdf needs forward slashes in URL paths, even on Windows
-            url_path = path.replace("\\", "/")
-            css_parts.append(
-                f'@font-face {{ font-family: "{name}"; src: url("{url_path}"); '
-                f'font-weight: {weight}; }}'
-            )
+    # Split into sections by ## headers
+    parts = re.split(r'^##\s+', md_content, flags=re.MULTILINE)
 
-    return "\n".join(css_parts)
+    sections = []
+    for i, part in enumerate(parts):
+        if i == 0:
+            continue
+
+        lines = part.split('\n', 1)
+        heading = lines[0].strip()
+        body = lines[1].strip() if len(lines) > 1 else ""
+
+        body = body.replace('[TOC]', '')
+        if not heading:
+            continue
+
+        body_html = md_lib.markdown(body, extensions=['tables', 'fenced_code', 'nl2br'])
+
+        # Chinese number for this section
+        cn_num = _CN_NUMS[len(sections)] if len(sections) < len(_CN_NUMS) else str(len(sections) + 1)
+
+        sections.append({
+            "number": len(sections) + 1,
+            "cn_number": cn_num,
+            "heading": heading,
+            "body_html": body_html,
+        })
+
+    return {
+        "company_name": company_name,
+        "stock_code": stock_code,
+        "raw_title": raw_title,
+        "sections": sections,
+    }
+
 
 # ============================================================================
-# Shared body CSS (works with both engines)
+# Jinja2 HTML Template - Institutional Research Style
 # ============================================================================
 
-_BODY_CSS = """
-/* ========================================
-   BASE TYPOGRAPHY
-   ======================================== */
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
+REPORT_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<title>{{ company_name }} ({{ stock_code }}) 综合分析报告</title>
+<style>
+/* ================================================================
+   RESET & BASE
+   ================================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-    font-family: "SimSun", "SimHei", "Microsoft YaHei", "Noto Sans SC", sans-serif;
-    font-size: 10.5pt;
-    line-height: 1.75;
-    color: #1a1a1a;
-}
-
-/* ========================================
-   COVER PAGE
-   ======================================== */
-
-.cover-page {
-    page-break-after: always;
-    padding: 3cm 2cm;
-    text-align: center;
-}
-
-.cover-top-bar {
-    width: 100%;
-    height: 6px;
-    background: #c9a227;
-    margin-bottom: 2cm;
-}
-
-.cover-brand {
-    margin-bottom: 1.5cm;
-}
-
-.cover-brand-mark {
-    font-size: 14pt;
-    font-weight: bold;
-    color: #c9a227;
-    border: 2px solid #c9a227;
-    padding: 4px 10px;
-    display: inline-block;
-}
-
-.cover-brand-name {
-    font-size: 11pt;
-    font-weight: 600;
-    color: #333333;
-    text-transform: uppercase;
-    margin-left: 12px;
-}
-
-.cover-divider {
-    width: 80px;
-    height: 3px;
-    background: #c9a227;
-    margin: 0 auto 1.5cm;
-}
-
-.cover-title {
-    font-size: 28pt;
-    font-weight: bold;
-    color: #0a0a0a;
-    line-height: 1.3;
-    margin-bottom: 0.6cm;
-}
-
-.cover-subtitle {
-    font-size: 14pt;
-    color: #666666;
-    margin-bottom: 1.5cm;
-    font-weight: 400;
-}
-
-.cover-meta-table {
-    width: 320px;
-    margin: 0 auto;
-    border-collapse: collapse;
-}
-
-.cover-meta-table td {
-    padding: 6px 16px;
+    font-family: "SimSun", "STSong-Light", "MicrosoftYaHei", "SimHei", sans-serif;
     font-size: 9.5pt;
-    border-bottom: 1px solid #e0e0e0;
+    line-height: 1.65;
+    color: #333333;
 }
 
-.cover-meta-table td:first-child {
-    color: #888888;
-    font-weight: 500;
-    width: 100px;
-    text-align: left;
-}
+@page { size: A4; margin: 1.5cm 1.8cm 1.5cm 1.8cm; }
 
-.cover-meta-table td:last-child {
-    color: #1a1a1a;
-    font-weight: bold;
-    text-align: left;
-}
+/* Cover page uses inline styles with <table>-based layout for xhtml2pdf compatibility */
 
-.cover-disclaimer {
-    font-size: 7pt;
-    color: #aaaaaa;
-    line-height: 1.6;
-    max-width: 500px;
-    margin: 1.5cm auto 0;
-}
-
-/* ========================================
+/* ================================================================
    TABLE OF CONTENTS
-   ======================================== */
-
+   ================================================================ */
 .toc-page {
     page-break-after: always;
-    padding-top: 1cm;
 }
 
-.toc-title {
-    font-size: 18pt;
+.toc-header {
+    font-size: 13pt;
     font-weight: bold;
-    color: #0a0a0a;
-    margin-bottom: 0.8cm;
-    padding-bottom: 8px;
-    border-bottom: 3px solid #c9a227;
-}
-
-.toc-list {
-    list-style: none;
-    padding: 0;
+    color: #1a3a6b;
+    padding-bottom: 4px;
+    border-bottom: 2px solid #1a3a6b;
+    margin-bottom: 0.5cm;
 }
 
 .toc-item {
-    padding: 8px 0;
-    border-bottom: 1px dotted #d0d0d0;
-    font-size: 10.5pt;
+    padding: 5px 0;
+    font-size: 9.5pt;
+    color: #333333;
+    border-bottom: 1px dotted #cccccc;
 }
 
-.toc-item-number {
-    color: #c9a227;
+.toc-num {
     font-weight: bold;
-    margin-right: 12px;
-}
-
-.toc-item-title {
-    color: #1a1a1a;
-    font-weight: 500;
-}
-
-/* ========================================
-   SECTION HEADINGS
-   ======================================== */
-
-h1 {
-    font-size: 22pt;
-    font-weight: bold;
-    color: #0a0a0a;
-    margin: 0;
-    padding: 0;
-}
-
-h2 {
-    font-size: 15pt;
-    font-weight: bold;
-    color: #0a0a0a;
-    margin-top: 1.2cm;
-    margin-bottom: 0.4cm;
-    padding-bottom: 6px;
-    border-bottom: 2.5px solid #c9a227;
-}
-
-h2 .section-number {
-    color: #c9a227;
+    color: #1a3a6b;
     margin-right: 8px;
-    font-weight: bold;
 }
 
-h3 {
+.toc-dots {
+    color: #bbbbbb;
+    letter-spacing: 1px;
+}
+
+/* ================================================================
+   SECTION HEADINGS - Clean, no background fill
+   ================================================================ */
+
+/* H2: Major section - Chinese number + heading with bottom border */
+h2 {
     font-size: 12pt;
     font-weight: bold;
-    color: #333333;
-    margin-top: 0.6cm;
-    margin-bottom: 0.3cm;
+    color: #1a3a6b;
+    border-bottom: 1.5px solid #1a3a6b;
+    padding-bottom: 3px;
+    margin-top: 0.5cm;
+    margin-bottom: 0.25cm;
 }
 
-h4 {
-    font-size: 10.5pt;
+/* H3: Sub-section - left accent bar */
+h3 {
+    font-size: 10pt;
     font-weight: bold;
-    color: #444444;
-    margin-top: 0.4cm;
-    margin-bottom: 0.2cm;
+    color: #1a3a6b;
+    border-left: 3px solid #1a3a6b;
+    padding-left: 6px;
+    margin-top: 0.3cm;
+    margin-bottom: 0.15cm;
 }
 
-/* ========================================
-   BODY CONTENT
-   ======================================== */
+/* H4: Sub-sub-section - plain bold */
+h4 {
+    font-size: 9.5pt;
+    font-weight: bold;
+    color: #333333;
+    margin-top: 0.2cm;
+    margin-bottom: 0.1cm;
+}
 
+/* ================================================================
+   BODY TEXT
+   ================================================================ */
 p {
-    margin-bottom: 0.35cm;
+    margin-bottom: 0.15cm;
     text-align: justify;
-    orphans: 3;
-    widows: 3;
+    color: #333333;
+    font-size: 9.5pt;
+    line-height: 1.65;
 }
 
 strong, b {
     font-weight: bold;
-    color: #0a0a0a;
+    color: #1a3a6b;
 }
 
 em, i {
     font-style: italic;
-    color: #333333;
+    color: #555555;
 }
 
-/* ========================================
-   LISTS
-   ======================================== */
-
+/* ================================================================
+   LISTS - Compact
+   ================================================================ */
 ul, ol {
-    margin: 0.3cm 0 0.4cm 0.6cm;
-    padding-left: 0.5cm;
-}
-
-li {
-    margin-bottom: 0.15cm;
-    line-height: 1.65;
-}
-
-/* ========================================
-   TABLES
-   ======================================== */
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 0.5cm 0;
+    margin: 0.1cm 0 0.15cm 0.6cm;
+    padding-left: 0.4cm;
+    color: #333333;
     font-size: 9.5pt;
 }
 
+li {
+    margin-bottom: 0.05cm;
+    line-height: 1.6;
+}
+
+/* ================================================================
+   TABLES - Body content tables only (cover uses inline styles)
+   ================================================================ */
 thead th {
-    background: #0a0a0a;
+    background: #1a3a6b;
     color: #ffffff;
-    padding: 8px 12px;
+    padding: 4px 6px;
     text-align: left;
     font-weight: bold;
-    font-size: 9pt;
+    font-size: 8pt;
+    border: 1px solid #1a3a6b;
 }
 
 tbody td {
-    padding: 7px 12px;
-    border-bottom: 1px solid #e5e5e5;
+    padding: 3px 6px;
+    border: 1px solid #dddddd;
+    color: #333333;
+    font-size: 8.5pt;
 }
 
 tbody tr:nth-child(even) {
-    background: #fafafa;
+    background: #f5f6f8;
 }
 
-/* ========================================
-   HIGHLIGHT BOXES
-   ======================================== */
-
+/* ================================================================
+   BLOCKQUOTES - Insight/highlight boxes
+   ================================================================ */
 blockquote {
-    border-left: 4px solid #c9a227;
-    background: #fdfcf8;
-    padding: 12px 16px;
-    margin: 0.4cm 0;
-    font-size: 10pt;
-    color: #333333;
+    border-left: 3px solid #c9a84c;
+    background: #faf8f0;
+    padding: 6px 10px;
+    margin: 0.15cm 0;
+    font-size: 9pt;
+    color: #444444;
 }
 
-/* ========================================
-   HORIZONTAL RULES
-   ======================================== */
-
+/* ================================================================
+   HR - Section dividers
+   ================================================================ */
 hr {
     border: none;
     height: 1px;
-    background: #c9a227;
-    margin: 0.8cm 0;
+    background: #dddddd;
+    margin: 0.3cm 0;
 }
 
-/* ========================================
-   CODE BLOCKS
-   ======================================== */
-
+/* ================================================================
+   CODE
+   ================================================================ */
 code {
-    font-family: "Consolas", "Source Code Pro", monospace;
-    background: #f5f5f5;
-    padding: 1px 5px;
-    font-size: 9pt;
-    color: #c9a227;
+    font-family: "Consolas", monospace;
+    background: #f4f4f4;
+    padding: 1px 3px;
+    font-size: 8pt;
 }
 
 pre {
-    background: #1a1a1a;
-    color: #e5e5e5;
-    padding: 14px 18px;
-    font-size: 8.5pt;
-    line-height: 1.5;
-    margin: 0.4cm 0;
-}
-
-pre code {
-    background: none;
-    padding: 0;
-    color: inherit;
-}
-
-/* ========================================
-   FOOTER DISCLAIMER (last page)
-   ======================================== */
-
-.report-footer {
-    margin-top: 1.5cm;
-    padding-top: 0.6cm;
-    border-top: 2px solid #c9a227;
+    background: #f5f5f5;
+    border: 1px solid #dddddd;
+    color: #333333;
+    padding: 8px 10px;
     font-size: 8pt;
-    color: #888888;
-    line-height: 1.7;
+    line-height: 1.4;
+    margin: 0.15cm 0;
 }
 
-.report-footer strong {
-    color: #555555;
-    font-size: 8.5pt;
+pre code { background: none; color: inherit; padding: 0; }
+
+/* ================================================================
+   SECTION NUMBER
+   ================================================================ */
+.sec-num {
+    font-weight: bold;
+    margin-right: 4px;
 }
-"""
 
+/* ================================================================
+   FOOTER DISCLAIMER
+   ================================================================ */
+.report-footer {
+    margin-top: 0.6cm;
+    padding-top: 0.3cm;
+    border-top: 1px solid #cccccc;
+    font-size: 7pt;
+    color: #999999;
+    line-height: 1.6;
+}
 
-def get_css_for_engine(engine: str = "xhtml2pdf") -> str:
-    """Return the appropriate CSS for the given PDF engine."""
-    if engine == "weasyprint":
-        return _PAGE_CSS_WEASYPRINT + _BODY_CSS
-    else:
-        # @font-face is injected at render time by pdf_converter._render_with_xhtml2pdf
-        return _PAGE_CSS_XHTML2PDF + _BODY_CSS
-
-
-def get_report_html(md_content: str, company_name: str = "", stock_code: str = "",
-                    analysis_date: str = "", engine: str = "xhtml2pdf") -> str:
-    """
-    Wrap Markdown content in a professional HTML template for PDF rendering.
-
-    Args:
-        md_content: Raw Markdown content from the report
-        company_name: Company name for the cover page
-        stock_code: Stock code for the cover page
-        analysis_date: Date string for the cover page
-        engine: PDF engine ("xhtml2pdf" or "weasyprint")
-
-    Returns:
-        Complete HTML string ready for PDF rendering
-    """
-    import markdown as md_lib
-    from datetime import datetime
-    import re
-
-    # Get the right CSS for the engine
-    css = get_css_for_engine(engine)
-
-    # Convert Markdown to HTML
-    md_extensions = ['tables', 'fenced_code', 'nl2br']
-    body_html = md_lib.markdown(md_content, extensions=md_extensions)
-
-    # Extract sections for TOC
-    sections = re.findall(r'^##\s+(.+)$', md_content, re.MULTILINE)
-    section_number = 1
-    toc_items = []
-    for section in sections:
-        toc_items.append(f"""
-        <div class="toc-item">
-            <span class="toc-item-number">{section_number:02d}</span>
-            <span class="toc-item-title">{section}</span>
-        </div>""")
-        section_number += 1
-
-    toc_html = "\n".join(toc_items)
-
-    # Replace h2 headers with numbered versions
-    counter = [0]
-    def add_section_number(match):
-        counter[0] += 1
-        return f'<h2><span class="section-number">{counter[0]:02d}</span>{match.group(1)}</h2>'
-    body_html = re.sub(r'<h2>(.+?)</h2>', add_section_number, body_html)
-
-    # Remove the first h1 from body (it's shown on the cover page instead)
-    body_html = re.sub(r'^<h1>.*?</h1>\s*', '', body_html, count=1, flags=re.DOTALL)
-
-    # Also remove [TOC] if present
-    body_html = body_html.replace('[TOC]', '')
-
-    # Build cover page
-    now = datetime.now()
-    date_display = analysis_date or now.strftime("%Y-%m-%d")
-
-    html = f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8"/>
-    <title>{company_name} ({stock_code}) 综合分析报告</title>
-    <style>{css}</style>
+.report-footer b {
+    color: #666666;
+    font-size: 7pt;
+}
+</style>
 </head>
 <body>
-    <!-- COVER PAGE -->
-    <div class="cover-page">
-        <div class="cover-top-bar"></div>
 
-        <div class="cover-brand">
-            <span class="cover-brand-mark">FX</span>
-            <span class="cover-brand-name">FINEX Research</span>
-        </div>
+<!-- ======================== COVER ======================== -->
+<div style="page-break-after: always;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <!-- Top accent bar -->
+    <tr><td bgcolor="#1a3a6b" style="height: 6px; font-size: 1px; line-height: 1px;">&nbsp;</td></tr>
+    <!-- Top Bar: Brand Identity -->
+    <tr>
+        <td style="padding: 28px 45px 12px 45px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td style="vertical-align: middle;">
+                        <p style="color: #1a3a6b; font-size: 15pt; font-weight: bold; margin: 0; font-family: MicrosoftYaHei, SimHei, sans-serif;">FINEX RESEARCH</p>
+                        <p style="color: #8899aa; font-size: 7.5pt; margin: 3px 0 0 0;">FINANCIAL INTELLIGENCE &middot; AI AGENT SYSTEM</p>
+                    </td>
+                    <td style="text-align: right; vertical-align: middle; width: 160px;">
+                        <p style="color: #8899aa; font-size: 7pt; margin: 0;">EQUITY ANALYSIS</p>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <!-- Separator -->
+    <tr>
+        <td style="padding: 0 45px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr><td bgcolor="#cccccc" style="height: 1px; font-size: 1px; line-height: 1px;">&nbsp;</td></tr>
+            </table>
+        </td>
+    </tr>
+    <!-- Hero Title Area -->
+    <tr>
+        <td style="padding: 60px 45px 40px 45px;">
+            <!-- Gold accent bar -->
+            <table cellpadding="0" cellspacing="0" border="0" style="width: 45px;">
+                <tr><td bgcolor="#c9a84c" style="height: 4px; font-size: 1px; line-height: 1px;">&nbsp;</td></tr>
+            </table>
+            <!-- Main title -->
+            <h1 style="font-size: 30pt; color: #1a3a6b; font-weight: bold; margin: 20px 0 5px 0; font-family: MicrosoftYaHei, SimHei, sans-serif;">{{ company_name or "金融分析报告" }}</h1>
+            <!-- Subtitle -->
+            <p style="font-size: 14pt; color: #555555; margin: 10px 0 0 0;">综合分析报告</p>
+            <!-- Stock code badge -->
+            {% if stock_code %}
+            <table cellpadding="0" cellspacing="0" border="0" style="margin-top: 18px;">
+                <tr><td style="border: 1px solid #1a3a6b; padding: 5px 16px; color: #1a3a6b; font-size: 10pt; font-family: Consolas, monospace;">{{ stock_code }}</td></tr>
+            </table>
+            {% endif %}
+        </td>
+    </tr>
+    <!-- Info Grid -->
+    <tr>
+        <td style="padding: 0 45px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <!-- Top separator -->
+                <tr><td colspan="2" bgcolor="#cccccc" style="height: 1px; font-size: 1px; line-height: 1px;">&nbsp;</td></tr>
+                <!-- Row 1 -->
+                <tr>
+                    <td width="50%" style="padding: 12px 10px 8px 0;">
+                        <p style="color: #999999; font-size: 7pt; margin: 0 0 2px 0;">分析日期 DATE</p>
+                        <p style="color: #333333; font-size: 9pt; margin: 0;">{{ analysis_date }}</p>
+                    </td>
+                    <td width="50%" style="padding: 12px 0 8px 10px;">
+                        <p style="color: #999999; font-size: 7pt; margin: 0 0 2px 0;">报告类型 TYPE</p>
+                        <p style="color: #333333; font-size: 9pt; margin: 0;">综合分析报告</p>
+                    </td>
+                </tr>
+                <!-- Row 2 -->
+                <tr>
+                    <td style="padding: 5px 10px 5px 0;">
+                        <p style="color: #999999; font-size: 7pt; margin: 0 0 2px 0;">研究机构 INSTITUTION</p>
+                        <p style="color: #333333; font-size: 9pt; margin: 0;">FINEX Financial Intelligence</p>
+                    </td>
+                    <td style="padding: 5px 0 5px 10px;">
+                        <p style="color: #999999; font-size: 7pt; margin: 0 0 2px 0;">数据截止 DATA AS OF</p>
+                        <p style="color: #333333; font-size: 9pt; margin: 0;">{{ analysis_date }}</p>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <!-- Spacer -->
+    <tr><td style="height: 130px; font-size: 1px;">&nbsp;</td></tr>
+    <!-- Bottom Disclaimer -->
+    <tr>
+        <td style="padding: 0 45px 25px 45px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr><td bgcolor="#cccccc" style="height: 1px; font-size: 1px; line-height: 1px;">&nbsp;</td></tr>
+            </table>
+            <p style="color: #999999; font-size: 6.5pt; margin-top: 12px; line-height: 1.7;">
+                本报告由 FINEX 金融分析智能体系统自动生成，仅供学术研究和投资参考之用，不构成任何投资建议。
+                投资有风险，入市需谨慎。过往业绩不代表未来表现。本报告中的分析、观点和预测均基于公开市场数据，
+                FINEX 对因使用本报告造成的任何直接或间接损失不承担责任。
+            </p>
+        </td>
+    </tr>
+    <!-- Gold Bottom Strip -->
+    <tr><td bgcolor="#c9a84c" style="height: 5px; font-size: 1px; line-height: 1px;">&nbsp;</td></tr>
+</table>
+</div>
 
-        <div class="cover-divider"></div>
-        <h1 class="cover-title">{company_name or '金融分析报告'}</h1>
-        <p class="cover-subtitle">{'(' + stock_code + ') ' if stock_code else ''}综合分析报告</p>
-
-        <table class="cover-meta-table">
-            <tr><td>分析日期</td><td>{date_display}</td></tr>
-            <tr><td>报告类型</td><td>综合分析报告</td></tr>
-            <tr><td>分析师</td><td>FINEX AI Agent System</td></tr>
-            <tr><td>版本</td><td>V2.0</td></tr>
-        </table>
-
-        <p class="cover-disclaimer">
-            本报告由 FINEX 金融分析智能体系统自动生成，仅供研究参考，不构成任何投资建议。
-            投资有风险，入市需谨慎。过往业绩不代表未来表现。
-        </p>
+<!-- ======================== TOC ======================== -->
+<div class="toc-page">
+    <div class="toc-header">目 录</div>
+    {% for sec in sections %}
+    <div class="toc-item">
+        <span class="toc-num">{{ sec.cn_number }}、</span>{{ sec.heading }}
     </div>
+    {% endfor %}
+</div>
 
-    <!-- TABLE OF CONTENTS -->
-    <div class="toc-page">
-        <div class="toc-title">目 录</div>
-        <div class="toc-list">
-            {toc_html}
-        </div>
-    </div>
+<!-- ======================== BODY - Continuous, no page breaks between sections ======================== -->
+{% for sec in sections %}
+<h2><span class="sec-num">{{ sec.cn_number }}、</span>{{ sec.heading }}</h2>
+{{ sec.body_html }}
+{% endfor %}
 
-    <!-- REPORT BODY -->
-    <div class="report-body">
-        {body_html}
+<!-- ======================== FOOTER ======================== -->
+<div class="report-footer">
+    <b>免责声明</b><br/>
+    本报告由 FINEX 金融分析智能体系统基于公开市场数据自动生成，仅供学术研究和投资参考之用。
+    报告中的分析、观点和预测不构成任何形式的投资建议。投资者应基于自身判断做出投资决策，
+    并承担相应风险。FINEX 对因使用本报告造成的任何直接或间接损失不承担责任。<br/><br/>
+    <b>数据来源</b>：Baostock、公开市场数据 &nbsp;&nbsp; <b>生成时间</b>：{{ gen_time }} &nbsp;&nbsp; <b>FINEX Financial Intelligence</b>
+</div>
 
-        <!-- FOOTER DISCLAIMER -->
-        <div class="report-footer">
-            <strong>免责声明</strong><br/>
-            本报告由 FINEX 金融分析智能体系统基于公开市场数据自动生成，仅供学术研究和投资参考之用。
-            报告中的分析、观点和预测不构成任何形式的投资建议、推荐或承诺。投资者应基于自身判断做出投资决策，
-            并承担相应风险。FINEX 对因使用本报告而造成的任何直接或间接损失不承担责任。<br/><br/>
-            <strong>数据来源</strong>：Baostock、公开市场数据<br/>
-            <strong>报告生成时间</strong>：{now.strftime("%Y-%m-%d %H:%M:%S")}<br/>
-            <strong>FINEX Financial Intelligence</strong>
-        </div>
-    </div>
 </body>
 </html>"""
 
-    return html
+
+# ============================================================================
+# Renderer
+# ============================================================================
+
+def render_report_html(
+    md_content: str,
+    company_name: str = "",
+    stock_code: str = "",
+    analysis_date: str = "",
+) -> str:
+    """
+    Parse MD -> structured data -> Jinja2 template -> HTML string.
+    """
+    from jinja2 import Template
+    from datetime import datetime
+
+    data = parse_md_to_sections(md_content)
+
+    context = {
+        "company_name": company_name or data["company_name"],
+        "stock_code": stock_code or data["stock_code"],
+        "analysis_date": analysis_date or datetime.now().strftime("%Y-%m-%d"),
+        "gen_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "sections": data["sections"],
+    }
+
+    template = Template(REPORT_TEMPLATE)
+    return template.render(**context)

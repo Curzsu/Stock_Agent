@@ -23,6 +23,7 @@ baostock>=0.8.9
 # PDF Generation
 xhtml2pdf>=0.2.0
 markdown>=3.4
+jinja2>=3.1
 # Optional: WeasyPrint for higher quality PDFs (requires GTK/Pango system libs)
 # weasyprint>=60.0
 
