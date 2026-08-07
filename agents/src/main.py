@@ -41,6 +41,9 @@ from src.utils.logging_config import setup_logger, SUCCESS_ICON, ERROR_ICON, WAI
 from src.utils.state_definition import AgentState
 from src.utils.execution_logger import initialize_execution_logger, finalize_execution_logger, get_execution_logger
 
+# 股票信息提取共享模块（P2-3: 合并 main.py 与 server.py 两套 extract_stock_info）
+from src.utils.stock_extractor import extract_stock_info
+
 # 智能体模块导入 - 五个核心分析智能体
 from src.agents.summary_agent import summary_agent      # 总结智能体：整合所有分析结果
 from src.agents.value_agent import value_agent          # 估值智能体：分析股票估值水平
@@ -48,8 +51,8 @@ from src.agents.technical_agent import technical_agent  # 技术分析智能体�
 from src.agents.fundamental_agent import fundamental_agent  # 基本面智能体：分析财务状况和盈利能力
 from src.agents.news_agent import news_agent            # 新闻分析智能体：分析新闻情感和风险
 
-# LangGraph工作流框架导入
-from langgraph.graph import StateGraph, END
+# LangGraph工作流框架导入（构图逻辑在 workflow_builder 工厂内）
+from src.utils.workflow_builder import build_workflow
 
 # 环境变量和系统相关导入
 from dotenv import load_dotenv
@@ -105,43 +108,15 @@ async def main():
 
     try:
         # ============================================================================
-        # 1. 定义LangGraph工作流 
+        # 1. 构建LangGraph工作流（共享工厂，与 server.py 共用同一拓扑）
         # ============================================================================
-        
-        # 创建工作流图，使用AgentState作为状态类型
-        workflow = StateGraph(AgentState)
-
-        # 添加起始节点 - 作为并行分支的清晰起点
-        workflow.add_node("start_node", lambda state: state)
-
-        # 添加五个核心智能体节点
-        workflow.add_node("fundamental_analyst", fundamental_agent)  # 基本面分析智能体
-        workflow.add_node("technical_analyst", technical_agent)      # 技术分析智能体
-        workflow.add_node("value_analyst", value_agent)             # 估值分析智能体
-        workflow.add_node("news_analyst", news_agent)               # 新闻分析智能体
-        workflow.add_node("summarizer", summary_agent)              # 总结智能体
-
-        # 设置工作流入口点
-        workflow.set_entry_point("start_node")
-
-        # 添加并行执行边 - 四个分析智能体并行执行
-        workflow.add_edge("start_node", "fundamental_analyst")
-        workflow.add_edge("start_node", "technical_analyst")
-        workflow.add_edge("start_node", "value_analyst")
-        workflow.add_edge("start_node", "news_analyst")
-
-        # 添加汇聚边 - 所有分析结果汇聚到总结智能体
-        # LangGraph确保"summarizer"等待所有直接前驱节点完成
-        workflow.add_edge("fundamental_analyst", "summarizer")
-        workflow.add_edge("technical_analyst", "summarizer")
-        workflow.add_edge("value_analyst", "summarizer")
-        workflow.add_edge("news_analyst", "summarizer")
-
-        # 添加结束边 - 总结智能体完成后结束工作流
-        workflow.add_edge("summarizer", END)
-
-        # 编译工作流
-        app = workflow.compile()
+        app = build_workflow(
+            fundamental_agent=fundamental_agent,
+            technical_agent=technical_agent,
+            value_agent=value_agent,
+            news_agent=news_agent,
+            summary_agent=summary_agent,
+        )
 
         # ============================================================================
         # 2. 实现命令行界面 
@@ -245,160 +220,7 @@ async def main():
         stock_code = None
         company_name = None
 
-        # 定义更精确的提取模式
-        def extract_stock_info(query):
-            """精确提取股票代码和公司名称"""
-            stock_code = None
-            company_name = None
-            
-            # 模式1: 包含"请帮我分析一下"的复杂查询，如"请帮我分析一下嘉友国际(603871)这只股票的投资价值如何"
-            pattern1 = r'请帮我分析一下\s*([^（(]+?)\s*[（(](\d{5,6})[)）]'
-            match1 = re.search(pattern1, query)
-            if match1:
-                company_name = match1.group(1).strip()
-                stock_code = match1.group(2)
-                return company_name, stock_code
-            
-            # 模式2: 包含"分析一下"的复杂查询，如"分析一下嘉友国际(603871)的财务状况"
-            pattern2 = r'分析一下\s*([^（(]+?)\s*[（(](\d{5,6})[)）]'
-            match2 = re.search(pattern2, query)
-            if match2:
-                company_name = match2.group(1).strip()
-                stock_code = match2.group(2)
-                return company_name, stock_code
-            
-            # 模式3: 股票代码在括号内，如"分析嘉友国际(603871)"
-            pattern3 = r'分析\s*([^（(]+?)\s*[（(](\d{5,6})[)）]'
-            match3 = re.search(pattern3, query)
-            if match3:
-                company_name = match3.group(1).strip()
-                stock_code = match3.group(2)
-                return company_name, stock_code
-            
-            # 模式4: 股票代码在括号内，如"分析(603871)嘉友国际"
-            pattern4 = r'分析\s*[（(](\d{5,6})[)）]\s*([^）)]+)'
-            match4 = re.search(pattern4, query)
-            if match4:
-                stock_code = match4.group(1)
-                company_name = match4.group(2).strip()
-                return company_name, stock_code
-            
-            # 模式5: 包含"帮我看看"的查询，如"帮我看看(000001)平安银行这只股票"
-            pattern5 = r'帮我看看\s*[（(](\d{5,6})[)）]\s*([^）)]+?)(?:\s*这只|\s*这个)?\s*股票'
-            match5 = re.search(pattern5, query)
-            if match5:
-                stock_code = match5.group(1)
-                company_name = match5.group(2).strip()
-                return company_name, stock_code
-            
-            # 模式6: 包含"我想了解一下"的查询，如"我想了解一下比亚迪(002594)的投资价值"
-            pattern6 = r'我想了解一下\s*([^（(]+?)\s*[（(](\d{5,6})[)）]'
-            match6 = re.search(pattern6, query)
-            if match6:
-                company_name = match6.group(1).strip()
-                stock_code = match6.group(2)
-                return company_name, stock_code
-            
-            # 模式7: 包含"帮我看看"的复杂查询，如"帮我看看茅台(600519)这只股票值得投资吗"
-            pattern7 = r'帮我看看\s*([^（(]+?)\s*[（(](\d{5,6})[)）]'
-            match7 = re.search(pattern7, query)
-            if match7:
-                company_name = match7.group(1).strip()
-                stock_code = match7.group(2)
-                return company_name, stock_code
-            
-            # 模式8: 直接公司名+括号格式，如"平安银行(000001)值得买吗"
-            pattern8 = r'^([^（(]+?)\s*[（(](\d{5,6})[)）]'
-            match8 = re.search(pattern8, query)
-            if match8:
-                company_name = match8.group(1).strip()
-                stock_code = match8.group(2)
-                return company_name, stock_code
-            
-            # 模式9: 包含"分析一下"的查询，如"分析一下宁德时代的财务状况"
-            pattern9 = r'分析一下\s*([^0-9（）()\s]+?)(?:\s*的|\s|$)'
-            match9 = re.search(pattern9, query)
-            if match9:
-                company_name = match9.group(1).strip()
-            
-            # 模式10: 包含"分析"关键词，如"分析嘉友国际"
-            pattern10 = r'分析\s*([^0-9（）()\s]+)'
-            match10 = re.search(pattern10, query)
-            if match10 and not company_name:
-                company_name = match10.group(1).strip()
-            
-            # 模式11: 包含"股票"关键词的查询，如"嘉友国际这只股票怎么样"
-            pattern11 = r'([^0-9（）()\s]+)\s*(?:这只|这个|的)?\s*股票'
-            match11 = re.search(pattern11, query)
-            if match11 and not company_name:
-                company_name = match11.group(1).strip()
-            
-            # 模式12: 包含"投资价值"的查询，如"了解一下腾讯的投资价值"
-            pattern12 = r'了解一下\s*([^0-9（）()\s]+?)(?:\s*的|\s|$)'
-            match12 = re.search(pattern12, query)
-            if match12 and not company_name:
-                company_name = match12.group(1).strip()
-            
-            # 模式13: 包含"给我分析一下"的查询，如"给我分析一下宁德时代的财务状况"
-            pattern13 = r'给我分析一下\s*([^0-9（）()\s]+?)(?:\s*的|\s|$)'
-            match13 = re.search(pattern13, query)
-            if match13 and not company_name:
-                company_name = match13.group(1).strip()
-            
-            # 模式14: 包含"的"字的查询，如"嘉友国际的财务表现如何"
-            pattern14 = r'([^0-9（）()\s]+?)\s*的\s*(?:财务表现|盈利能力|现金流状况|资产负债情况|技术面|股价走势|技术指标|技术面表现|估值水平|市盈率|市净率|估值|投资风险|风险因素|风险评估|投资价值|股票|基本面情况|基本面|财务状况)'
-            match14 = re.search(pattern14, query)
-            if match14 and not company_name:
-                company_name = match14.group(1).strip()
-            
-            # 模式15: 包含"在...中"的查询（无"的"字），如"比亚迪在新能源汽车行业的表现"
-            pattern15 = r'([^0-9（）()\s]+?)\s*在\s*[^0-9（）()\s]*\s*中'
-            match15 = re.search(pattern15, query)
-            if match15 and not company_name:
-                company_name = match15.group(1).strip()
-            
-            # 模式16: 包含"在...中"的查询，如"嘉友国际在行业中的地位"
-            pattern16 = r'([^0-9（）()\s]+?)\s*在\s*[^0-9（）()\s]*\s*中\s*的'
-            match16 = re.search(pattern16, query)
-            if match16 and not company_name:
-                company_name = match16.group(1).strip()
-            
-            # 模式17: 包含"面临"的查询，如"比亚迪面临的主要风险"
-            pattern17 = r'([^0-9（）()\s]+?)\s*面临'
-            match17 = re.search(pattern17, query)
-            if match17 and not company_name:
-                company_name = match17.group(1).strip()
-            
-            # 模式18: 直接包含5-6位数字股票代码
-            pattern18 = r'\b(\d{5,6})\b'
-            match18 = re.search(pattern18, query)
-            if match18:
-                stock_code = match18.group(1)
-            
-            # 模式19: 包含"值得买"的查询，如"603871 这个股票值得买吗"
-            pattern19 = r'(\d{5,6})\s*(?:这个|这只)?\s*股票\s*值得买'
-            match19 = re.search(pattern19, query)
-            if match19 and not stock_code:
-                stock_code = match19.group(1)
-            
-            # 模式20: 包含"这个股票最近表现"的查询，如"603871这个股票最近表现怎么样，值得投资吗"
-            pattern20 = r'(\d{5,6})\s*这个\s*股票\s*最近表现'
-            match20 = re.search(pattern20, query)
-            if match20 and not stock_code:
-                stock_code = match20.group(1)
-            
-            # 清理公司名称（移除常见的无意义词汇）
-            if company_name:
-                # 移除常见的无意义词汇
-                stop_words = ['的', '这个', '这只', '一下', '看看', '了解', '分析', '帮我', '我想', '给我', '财务状况', '投资价值', '基本面情况', '这只股票', '这个股票']
-                for word in stop_words:
-                    company_name = company_name.replace(word, '').strip()
-                
-                # 如果公司名称太短（少于2个字符），可能是误匹配
-                if len(company_name) < 2:
-                    company_name = None
-            
-            return company_name, stock_code
+        # 使用共享模块的 extract_stock_info（P2-3: 合并 main.py 与 server.py 两套实现）
 
         # 执行提取
         company_name, stock_code = extract_stock_info(user_query)

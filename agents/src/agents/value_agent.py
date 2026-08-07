@@ -3,13 +3,8 @@ ValueAnalysis Agent: Performs valuation analysis of a stock using ReAct Agent fr
 估值分析 Agent：使用ReAct Agent框架对股票进行估值分析
 """
 import os
-import json
-from typing import Dict, Any, List, Optional
-from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI  # 恢复OpenAI接口调用
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.outputs import ChatResult, ChatGeneration
+from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.prebuilt import create_react_agent
 import time
 import asyncio
@@ -18,6 +13,7 @@ from src.utils.state_definition import AgentState
 from src.tools.mcp_client import get_mcp_tools
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
 from src.utils.execution_logger import get_execution_logger
+from src.utils.agent_config import REACT_RECURSION_LIMIT, REACT_TIMEOUT_SECONDS, LLM_TEMPERATURE, LLM_MAX_TOKENS
 from dotenv import load_dotenv
 
 # 从.env文件加载环境变量
@@ -91,8 +87,8 @@ async def value_agent(state: AgentState) -> AgentState:
             model=model_name,
             api_key=api_key,
             base_url=base_url,
-            temperature=0.3,  # 较低的温度确保分析的一致性
-            max_tokens=6000   # 增加token数量用于详细分析
+            temperature=LLM_TEMPERATURE,  # 较低的温度确保分析的一致性
+            max_tokens=LLM_MAX_TOKENS   # 增加token数量用于详细分析
         )
 
         # 2. 获取MCP工具集
@@ -163,12 +159,13 @@ async def value_agent(state: AgentState) -> AgentState:
             # 设置480秒（8分钟）总超时，防止LLM API挂起导致永久等待
             try:
                 response = await asyncio.wait_for(
-                    agent.ainvoke(input_data, config={"recursion_limit": 25}),
-                    timeout=480.0
+                    agent.ainvoke(input_data, config={"recursion_limit": REACT_RECURSION_LIMIT}),
+                    timeout=REACT_TIMEOUT_SECONDS
                 )
             except asyncio.TimeoutError:
                 logger.error(f"{ERROR_ICON} ValueAgent: Agent execution timed out after 480 seconds")
-                current_data["value_analysis"] = "估值分析超时：LLM响应时间过长（超过8分钟），请稍后重试。"
+                # P1-4: 失败时只写 error key，不写 analysis key，
+                # 否则错误文本会被 summary 当成分析结果喂给 LLM（静默失败）。
                 current_data["value_analysis_error"] = "Agent execution timed out after 480 seconds"
                 current_metadata["value_agent_error"] = "Agent execution timed out"
 
@@ -224,8 +221,8 @@ async def value_agent(state: AgentState) -> AgentState:
             # 7. 记录LLM交互，用于后续分析和优化
             model_config = {
                 "model": model_name,
-                "temperature": 0.3,
-                "max_tokens": 6000,
+                "temperature": LLM_TEMPERATURE,
+                "max_tokens": LLM_MAX_TOKENS,
                 "api_base": base_url
             }
             
@@ -269,8 +266,9 @@ async def value_agent(state: AgentState) -> AgentState:
         except Exception as e:
             logger.error(
                 f"{ERROR_ICON} ValueAgent: Error in MCP or agent execution: {e}", exc_info=True)
+            # P1-4: 失败时只写 error key，不写 analysis key，
+            # 否则错误文本会被 summary 当成分析结果喂给 LLM（静默失败）。
             current_data["value_analysis_error"] = f"Error in MCP or agent execution: {e}"
-            current_data["value_analysis"] = f"估值分析过程中出现错误: {str(e)}"
             current_metadata["value_agent_error"] = str(e)
 
             # 记录 Agent执行失败

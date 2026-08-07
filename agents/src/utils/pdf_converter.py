@@ -263,6 +263,26 @@ def _render_with_weasyprint(html_content: str, pdf_path: str, temp_dir: str) -> 
             os.remove(temp_html)
 
 
+def derive_pdf_path(md_path: str) -> str:
+    """根据 MD 报告路径推导对应的 PDF 路径。
+
+    约定：reports/md/xxx.md -> reports/pdf/xxx.pdf
+    若 MD 不在名为 "md" 的目录下，则 PDF 与 MD 同目录、同名换 .pdf 后缀。
+
+    Args:
+        md_path: Absolute path to the .md report file.
+
+    Returns:
+        Absolute path to the corresponding .pdf file (not guaranteed to exist).
+    """
+    md_path = str(md_path)
+    md_dir = os.path.dirname(md_path)
+    md_base = os.path.splitext(os.path.basename(md_path))[0]
+    if os.path.basename(md_dir) == "md":
+        return os.path.join(os.path.dirname(md_dir), "pdf", md_base + ".pdf")
+    return os.path.splitext(md_path)[0] + ".pdf"
+
+
 def convert_md_to_pdf(md_path: str, company_name: str = "",
                       stock_code: str = "", analysis_date: str = "") -> Optional[str]:
     """
@@ -294,16 +314,12 @@ def convert_md_to_pdf(md_path: str, company_name: str = "",
             return None
 
         # Derive PDF path: reports/md/xxx.md -> reports/pdf/xxx.pdf
-        md_dir = os.path.dirname(md_path)
-        md_base = os.path.splitext(os.path.basename(md_path))[0]
-        # If MD is in reports/md/, put PDF in reports/pdf/
-        if os.path.basename(md_dir) == "md":
-            pdf_dir = os.path.join(os.path.dirname(md_dir), "pdf")
-            os.makedirs(pdf_dir, exist_ok=True)
-            pdf_path = os.path.join(pdf_dir, md_base + ".pdf")
-        else:
-            # Fallback: same directory as MD
-            pdf_path = os.path.splitext(md_path)[0] + ".pdf"
+        # (shared logic; ensures directory convention changes only need one edit)
+        pdf_path = derive_pdf_path(md_path)
+        # Ensure the PDF output directory exists (only creates reports/pdf/ when
+        # the MD lives under a "md" dir; otherwise the MD dir already exists).
+        if os.path.basename(os.path.dirname(md_path)) == "md":
+            os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
 
         logger.info(f"{WAIT_ICON} Starting PDF generation ({_PDF_ENGINE}): {os.path.basename(md_path)}")
 

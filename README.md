@@ -115,20 +115,19 @@ scripts\start_server.bat
 bash scripts/start_server.sh
 
 # 或手动启动
-python -m uvicorn backend.server:app --host 0.0.0.0 --port 8000
+python -m uvicorn backend.server:app --host 0.0.0.0 --port 8100
 ```
 
 6. **访问应用**
 
-打开浏览器访问 http://localhost:8000
+打开浏览器访问 http://localhost:8100
 
 ## 项目结构
 
 ```
 finex/
 ├── backend/                    # 后端服务
-│   ├── server.py              # FastAPI 主程序 (REST API + LangGraph 调度)
-│   └── requirements.txt       # 后端专用依赖
+│   └── server.py              # FastAPI 主程序 (REST API + LangGraph 调度)
 ├── frontend/                   # 前端页面
 │   └── index.html             # 单页应用 (Glassmorphism 风格)
 ├── agents/                     # AI 多智能体系统
