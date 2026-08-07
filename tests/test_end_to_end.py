@@ -159,20 +159,25 @@ def _patch_analysis_agents(contents=None, failures=None):
 
 def _patch_summary(report_content="这是模拟综合报告内容"):
     """
-    patch summary_agent 模块的 ChatOpenAI 与 generate_pdf_background。
+    patch summary_agent 的 ChatOpenAI 与 generate_pdf_background。
     返回 (patchers, llm_calls) -- llm_calls 记录 summary 是否真的调了 LLM。
 
     summary_agent 里是 `llm = ChatOpenAI(...)` 调用形式，故用一个 callable
     工厂替换 ChatOpenAI：每次被「调用」就返回一个假 llm。
+
+    注意：ChatOpenAI 现为 API 分支内的延迟导入（from langchain_openai import
+    ChatOpenAI），不再是 summary_agent 的模块级属性，因此 patch 其源头
+    langchain_openai.ChatOpenAI。
     """
     from src.agents import summary_agent as summary_mod
+    import langchain_openai
 
     llm_calls = []
 
     def fake_chat_openai_factory(*args, **kwargs):
         return _make_fake_llm(report_content=report_content, llm_calls=llm_calls)
 
-    p1 = patch.object(summary_mod, "ChatOpenAI", new=fake_chat_openai_factory)
+    p1 = patch.object(langchain_openai, "ChatOpenAI", new=fake_chat_openai_factory)
     p1.start()
 
     p2 = patch.object(summary_mod, "generate_pdf_background", _fake_generate_pdf_background)

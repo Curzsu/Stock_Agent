@@ -6,9 +6,6 @@ import os
 import time
 import asyncio
 from typing import Dict, Any
-from langchain_openai import ChatOpenAI  # 恢复OpenAI导入
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
 import re
 
 from src.utils.state_definition import AgentState
@@ -81,11 +78,15 @@ def truncate_report_at_baseline_time(report_content: str, current_time_info: str
 def load_finr1_model(model_path="/root/code/Finance/FinR1"):
     """加载FinR1模型"""
     logger.info(f"{WAIT_ICON} Loading FinR1 model from {model_path}...")
-    
+
     try:
+        # 延迟导入：torch/transformers 仅在本地模型路径下需要，避免 API 路径下加载耗时依赖
+        import torch
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+
         # 加载tokenizer
         tokenizer = AutoTokenizer.from_pretrained(model_path)
-        
+
         # 加载模型
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
@@ -105,8 +106,11 @@ def load_finr1_model(model_path="/root/code/Finance/FinR1"):
 
 def generate_report_with_finr1(model, tokenizer, prompt, max_new_tokens=5000):
     """使用FinR1模型生成报告"""
-    
+
     try:
+        # 延迟导入：与 load_finr1_model 一致，仅在本地模型路径下需要
+        import torch
+
         # 编码输入
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=4096)
         inputs = {k: v.to(model.device) for k, v in inputs.items()}
@@ -386,6 +390,9 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
             ]
 
             # 使用ChatOpenAI模型
+            # 延迟导入：langchain_openai 会拉起 torch/transformers（约 12s），
+            # 仅在走 API 路径时才需要，避免模块导入阶段就加载重依赖
+            from langchain_openai import ChatOpenAI
             logger.info(f"{WAIT_ICON} SummaryAgent: Creating ChatOpenAI with model {model_name}")
             llm = ChatOpenAI(
                 model=model_name,

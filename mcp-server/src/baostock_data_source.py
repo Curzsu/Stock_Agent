@@ -347,12 +347,6 @@ class BaostockDataSource(FinancialDataSource):
             格式化的新闻结果
         """
         try:
-            
-            
-            # 加载风险模型和情感模型
-            risk_model, risk_tokenizer = self._load_risk_model()
-            sentiment_model, sentiment_tokenizer = self._load_sentiment_model()
-            
             # 使用百度新闻搜索（更容易绕过反爬）
             import urllib.parse
             encoded_query = urllib.parse.quote(query)
@@ -499,9 +493,9 @@ class BaostockDataSource(FinancialDataSource):
                     if not full_content:
                         full_content = abstract
                     
-                    # 使用模型分析内容
-                    risk_analysis = self._analyze_risk(full_content, risk_model, risk_tokenizer) if risk_model else "未分析"
-                    sentiment_analysis = self._analyze_sentiment(full_content, sentiment_model, sentiment_tokenizer) if sentiment_model else "未分析"
+                    # 风险/情感分析依赖的本地微调模型已移除，标记为未分析
+                    risk_analysis = "未分析"
+                    sentiment_analysis = "未分析"
                     
                     results.append({
                         'title': title,
@@ -574,9 +568,9 @@ class BaostockDataSource(FinancialDataSource):
                         if not full_content:
                             full_content = abstract
                         
-                        # 使用模型分析内容
-                        risk_analysis = self._analyze_risk(full_content, risk_model, risk_tokenizer) if risk_model else "未分析"
-                        sentiment_analysis = self._analyze_sentiment(full_content, sentiment_model, sentiment_tokenizer) if sentiment_model else "未分析"
+                        # 风险/情感分析依赖的本地微调模型已移除，标记为未分析
+                        risk_analysis = "未分析"
+                        sentiment_analysis = "未分析"
                         
                         results.append({
                             'title': title,
@@ -665,211 +659,3 @@ class BaostockDataSource(FinancialDataSource):
         except Exception as e:
             logger.warning(f"获取文章内容时出错: {e}")
             return ""
-    
-    def _load_risk_model(self):
-        """加载风险模型"""
-        try:
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-            from peft import PeftModel
-            import torch
-            
-            risk_model_path = "/mnt/data/guyx/self-learn/Finance/qwen_risk_model"
-            base_model_name = "/mnt/data/guyx/self-learn/Finance/Qwen"
-            
-            # 检查CUDA可用性
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            logger.info(f"使用设备: {device}")
-            
-            # 加载tokenizer
-            tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-            tokenizer.pad_token = tokenizer.eos_token
-            
-            # 加载基础模型
-            base_model = AutoModelForCausalLM.from_pretrained(
-                base_model_name,
-                torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-                device_map="auto" if device == "cuda" else None
-            )
-            
-            # 加载LoRA适配器
-            risk_model = PeftModel.from_pretrained(base_model, risk_model_path)
-            
-            # 确保模型在正确的设备上
-            if device == "cpu":
-                risk_model = risk_model.to(device)
-            
-            logger.info("风险模型加载成功")
-            return risk_model, tokenizer
-            
-        except Exception as e:
-            logger.error(f"加载风险模型时出错: {e}")
-            return None, None
-    
-    def _load_sentiment_model(self):
-        """加载情感模型"""
-        try:
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-            from peft import PeftModel
-            import torch
-            
-            sentiment_model_path = "/mnt/data/guyx/self-learn/Finance/qwen_sentiment_model"
-            base_model_name = "/mnt/data/guyx/self-learn/Finance/Qwen"
-            
-            # 检查CUDA可用性
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            logger.info(f"使用设备: {device}")
-            
-            # 加载tokenizer
-            tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-            tokenizer.pad_token = tokenizer.eos_token
-            
-            # 加载基础模型
-            base_model = AutoModelForCausalLM.from_pretrained(
-                base_model_name,
-                torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-                device_map="auto" if device == "cuda" else None
-            )
-            
-            # 加载LoRA适配器
-            sentiment_model = PeftModel.from_pretrained(base_model, sentiment_model_path)
-            
-            # 确保模型在正确的设备上
-            if device == "cpu":
-                sentiment_model = sentiment_model.to(device)
-            
-            logger.info("情感模型加载成功")
-            return sentiment_model, tokenizer
-            
-        except Exception as e:
-            logger.error(f"加载情感模型时出错: {e}")
-            return None, None
-    
-    def _analyze_risk(self, content: str, model, tokenizer) -> str:
-        """使用风险模型分析内容"""
-        try:
-            if model is None or tokenizer is None:
-                return "模型未加载"
-            
-            import torch
-            
-            # 获取模型所在设备
-            device = next(model.parameters()).device
-            
-            # 构建风险评估提示词
-            system_prompt = "Forget all your previous instructions. You are a financial expert specializing in risk assessment for stock recommendations. Based on a specific stock, provide a risk score from 1 to 5, where: 1 indicates very low risk, 2 indicates low risk, 3 indicates moderate risk (default if the news lacks any clear indication of risk), 4 indicates high risk, and 5 indicates very high risk. 1 summarized news will be passed in each time. Provide the score in the format shown below in the response from the assistant."
-            
-            user_content = f"News to Stock Symbol -- STOCK: {content}"
-            
-            prompt = f"""System: {system_prompt}
-
-User: News to Stock Symbol -- AAPL: Apple (AAPL) increases 22%
-Assistant: 3
-
-User: News to Stock Symbol -- AAPL: Apple (AAPL) price decreased 30%
-Assistant: 4
-
-User: News to Stock Symbol -- AAPL: Apple (AAPL) announced iPhone 15
-Assistant: 3
-
-User: {user_content}
-Assistant:"""
-            
-            # 编码输入并移动到正确的设备
-            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-            
-            # 生成预测
-            with torch.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=5,
-                    do_sample=False,
-                    temperature=0.1,
-                    pad_token_id=tokenizer.eos_token_id
-                )
-            
-            # 解码输出
-            generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-            
-            # 提取预测的风险分数
-            assistant_response = generated_text.split("Assistant:")[-1].strip()
-            
-            # 尝试提取数字
-            try:
-                risk_score = int(assistant_response.split()[0])
-                if 1 <= risk_score <= 5:
-                    risk_map = {1: "极低风险", 2: "低风险", 3: "中等风险", 4: "高风险", 5: "极高风险"}
-                    return f"{risk_score} ({risk_map[risk_score]})"
-            except:
-                pass
-            
-            return "无法分析风险"
-            
-        except Exception as e:
-            logger.error(f"风险分析时出错: {e}")
-            return f"风险分析失败: {str(e)}"
-    
-    def _analyze_sentiment(self, content: str, model, tokenizer) -> str:
-        """使用情感模型分析内容"""
-        try:
-            if model is None or tokenizer is None:
-                return "模型未加载"
-            
-            import torch
-            
-            # 获取模型所在设备
-            device = next(model.parameters()).device
-            
-            # 构建情感分析提示词
-            system_prompt = "Forget all your previous instructions. You are a financial expert with stock recommendation experience. Based on a specific stock, score for range from 1 to 5, where 1 is negative, 2 is somewhat negative, 3 is neutral, 4 is somewhat positive, 5 is positive. 1 summarized news will be passed in each time, you will give score in format as shown below in the response from assistant."
-            
-            user_content = f"News to Stock Symbol -- STOCK: {content}"
-            
-            prompt = f"""System: {system_prompt}
-
-User: News to Stock Symbol -- AAPL: Apple (AAPL) increase 22%
-Assistant: 5
-
-User: News to Stock Symbol -- AAPL: Apple (AAPL) price decreased 30%
-Assistant: 1
-
-User: News to Stock Symbol -- AAPL: Apple (AAPL) announced iPhone 15
-Assistant: 4
-
-User: {user_content}
-Assistant:"""
-            
-            # 编码输入并移动到正确的设备
-            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-            
-            # 生成预测
-            with torch.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=5,
-                    do_sample=False,
-                    temperature=0.1,
-                    pad_token_id=tokenizer.eos_token_id
-                )
-            
-            # 解码输出
-            generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-            
-            # 提取预测的情感分数
-            assistant_response = generated_text.split("Assistant:")[-1].strip()
-            
-            # 尝试提取数字
-            try:
-                sentiment_score = int(assistant_response.split()[0])
-                if 1 <= sentiment_score <= 5:
-                    sentiment_map = {1: "负面", 2: "轻微负面", 3: "中性", 4: "正面", 5: "极正面"}
-                    return f"{sentiment_score} ({sentiment_map[sentiment_score]})"
-            except:
-                pass
-            
-            return "无法分析情感"
-            
-        except Exception as e:
-            logger.error(f"情感分析时出错: {e}")
-            return f"情感分析失败: {str(e)}"
