@@ -57,8 +57,7 @@
 | AI 框架 | LangGraph, LangChain |
 | 数据协议 | MCP (Model Context Protocol) |
 | 数据源 | Baostock, A股行情接口 |
-| LLM | OpenAI / Azure OpenAI / 其他兼容 API |
-| 部署 | Docker, Docker Compose |
+| LLM | OpenAI 兼容 API (OpenRouter 等) |
 
 ## 快速开始
 
@@ -132,28 +131,39 @@ finex/
 │   └── index.html             # 单页应用 (Glassmorphism 风格)
 ├── agents/                     # AI 多智能体系统
 │   ├── src/
-│   │   ├── main.py            # Agent 编排主入口
-│   │   ├── agents/            # 各领域 Agent
+│   │   ├── main.py            # Agent 编排主入口 (CLI)
+│   │   ├── agents/            # 各领域 Agent (基于 create_react_agent)
 │   │   │   ├── fundamental_agent.py   # 基本面分析
 │   │   │   ├── technical_agent.py     # 技术面分析
 │   │   │   ├── value_agent.py         # 价值面分析
 │   │   │   ├── news_agent.py          # 新闻面分析
-│   │   │   └── summary_agent.py       # 汇总分析
+│   │   │   └── summary_agent.py       # 汇总分析 (生成最终报告)
 │   │   ├── tools/             # MCP 工具集成
-│   │   │   ├── mcp_client.py         # MCP 客户端
+│   │   │   ├── mcp_client.py         # MCP 客户端 (进程级单例)
+│   │   │   ├── mcp_config.py         # MCP 服务连接配置
 │   │   │   └── openrouter_config.py  # OpenRouter 配置
-│   │   └── utils/             # 工具函数
+│   │   └── utils/             # 共享工具模块
+│   │       ├── state_definition.py   # AgentState 状态定义 (TypedDict)
+│   │       ├── workflow_builder.py   # build_workflow() 工作流工厂
+│   │       ├── agent_config.py       # Agent 共享配置 (递归深度/超时/LLM 参数)
+│   │       ├── baostock_helper.py    # Baostock 线程安全访问
+│   │       ├── stock_extractor.py    # 股票代码/名称提取 (共享模块)
 │   │       ├── execution_logger.py   # 执行日志
 │   │       ├── llm_clients.py        # LLM 客户端管理
-│   │       └── state_definition.py   # 状态定义
-│   ├── logs/                  # Agent 执行日志
-│   ├── reports/               # 生成的分析报告
-│   └── .env                   # 环境配置
-├── mcp-server/                 # MCP 数据服务
-│   ├── mcp_server.py          # MCP 服务器入口
+│   │       ├── logging_config.py     # 日志配置
+│   │       ├── pdf_converter.py      # Markdown -> PDF 转换
+│   │       └── pdf_styles.py         # PDF 样式与解析
+│   ├── reports/               # 生成的分析报告 (md/ + pdf/, gitignored)
+│   └── .env                   # 环境配置 (gitignored)
+├── mcp-server/                 # MCP 数据服务 (A 股行情/财务/宏观数据)
+│   ├── mcp_server.py          # MCP 服务器入口 (FastMCP)
+│   ├── pyproject.toml         # MCP 服务项目配置
 │   ├── src/
-│   │   ├── baostock_data_source.py   # Baostock 数据源
+│   │   ├── baostock_data_source.py   # Baostock 数据源实现
 │   │   ├── data_source_interface.py  # 数据源接口
+│   │   ├── utils.py           # Baostock 登录上下文与通用取数
+│   │   ├── formatting/        # 数据格式化
+│   │   │   └── markdown_formatter.py
 │   │   └── tools/             # MCP 工具集
 │   │       ├── stock_market.py       # 股票行情工具
 │   │       ├── financial_reports.py  # 财务报表工具
@@ -161,20 +171,26 @@ finex/
 │   │       ├── indices.py            # 指数工具
 │   │       ├── macroeconomic.py      # 宏观经济工具
 │   │       ├── market_overview.py    # 市场概览工具
-│   │       └── news_crawler.py       # 新闻爬取工具
-│   └── pyproject.toml         # MCP 服务项目配置
+│   │       ├── news_crawler.py       # 新闻爬取工具
+│   │       └── date_utils.py         # 日期工具
+│   └── tests/                 # MCP 服务测试
+│       └── test_crawl_news_no_model.py
 ├── scripts/                    # 启动脚本
 │   ├── start_server.bat       # Windows 启动脚本
 │   └── start_server.sh        # Linux/Mac 启动脚本
 ├── tests/                      # 测试套件
-│   ├── test_mcp_direct.py     # MCP 协议直连测试
-│   └── test_langchain_mcp.py  # LangChain MCP 适配测试
-├── logs/                       # 应用运行日志
-├── Nasdaq Sentiment Fine-tuning Task/  # Nasdaq 情感分析微调
-│   ├── data_process.py        # 数据处理
-│   ├── train_qwen_sentiment.py # 情感模型训练
-│   └── train_qwen_risk.py     # 风险模型训练
-├── requirements.txt            # Python 依赖
+│   ├── test_baostock_concurrency.py   # Baostock 并发安全
+│   ├── test_agent_failure_handling.py # Agent 失败处理
+│   ├── test_workflow_builder.py       # 工作流工厂拓扑
+│   ├── test_stock_extractor.py        # 股票代码提取
+│   ├── test_pdf_path.py               # PDF 路径推导
+│   ├── test_summary_agent_lazy_torch.py # summary_agent 懒加载
+│   └── test_end_to_end.py             # 端到端冒烟测试
+├── docs/                       # 设计文档
+├── images-README/              # README 截图资源
+├── requirements.txt            # Python 依赖 (web 应用核心)
+├── AGENTS.md                   # Agent 工作流配置
+├── TODO.md                     # 待办事项
 └── README.md
 ```
 
