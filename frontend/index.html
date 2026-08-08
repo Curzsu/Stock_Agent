@@ -15,6 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/SplitText.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 
   <style>
     :root {
@@ -471,38 +472,29 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      padding: 0.5rem 1rem;
-      background: rgba(255, 255, 255, 0.5);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      border-radius: var(--radius-full);
       transition: all 0.3s ease;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
     }
 
     .logo:hover {
-      background: rgba(255, 255, 255, 0.7);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
       transform: translateY(-1px);
     }
 
     .logo-mark {
       font-family: var(--font-display);
-      font-size: 1.25rem;
+      font-size: 1.625rem;
       font-weight: 700;
       color: var(--gold);
     }
 
     .logo-text {
       font-family: var(--font-display);
-      font-size: 1.25rem;
+      font-size: 1.625rem;
       font-weight: 600;
       letter-spacing: 0.12em;
     }
 
     .tagline {
-      font-size: 0.75rem;
+      font-size: 0.9375rem;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--gray-500);
@@ -541,10 +533,12 @@
     }
 
     .date-display {
-      font-family: var(--font-display);
-      font-size: 0.875rem;
-      font-style: italic;
-      color: var(--gray-500);
+      font-family: var(--font-body);
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--gray-600);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
     }
 
     .status-indicator {
@@ -586,11 +580,11 @@
 
     .hero-title {
       font-family: var(--font-display);
-      font-size: clamp(2.5rem, 7vw, 5rem);
+      font-size: clamp(3.5rem, 9vw, 7rem);
       font-weight: 400;
-      line-height: 1.15;
-      letter-spacing: -0.02em;
-      margin-bottom: 1.25rem;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.5rem;
     }
 
     .title-line {
@@ -662,7 +656,7 @@
       border: none;
       background: transparent;
       font-family: var(--font-body);
-      font-size: 1rem;
+      font-size: 1.125rem;
       color: var(--black);
       outline: none;
     }
@@ -732,19 +726,19 @@
     }
 
     .hint-label {
-      font-size: 0.75rem;
+      font-size: 0.875rem;
       color: var(--gray-500);
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
 
     .hint-tag {
-      padding: 0.5rem 1rem;
+      padding: 0.5rem 1.1rem;
       background: rgba(255, 255, 255, 0.6);
       border: 1px solid rgba(0, 0, 0, 0.06);
       border-radius: var(--radius-full);
       font-family: var(--font-body);
-      font-size: 0.8125rem;
+      font-size: 0.9375rem;
       color: var(--gray-600);
       cursor: pointer;
       transition: all 0.3s var(--ease-out-expo);
@@ -1750,6 +1744,43 @@
        新增页面结构 & 组件（适配金融）
        ============================================================ */
 
+    /* --- 市场行情 K 线区 --- */
+    .market-section { position: relative; padding: 8rem 5vw 6rem; background: var(--warm-bg); }
+    .market-container { max-width: 1200px; margin: 0 auto; }
+    .market-header {
+      display: flex; justify-content: space-between; align-items: flex-end;
+      flex-wrap: wrap; gap: 1.5rem; margin-bottom: 2.5rem;
+    }
+    .market-title {
+      font-family: var(--font-display); font-size: clamp(2rem, 4vw, 3rem);
+      margin: 0; letter-spacing: -0.01em;
+    }
+    .market-sub { color: var(--gray-600); margin-top: 0.4rem; font-size: 1.0625rem; }
+    .market-tags { display: flex; gap: 1.1rem; flex-wrap: wrap; align-items: center; }
+    .market-tag {
+      font-size: 1.0625rem; font-weight: 500; letter-spacing: 0.01em;
+      padding: 0;
+    }
+    .market-tag.up { color: #b03a2e; }
+    .market-tag.down { color: #1e8e5a; }
+    .market-card {
+      background: rgba(255,255,255,0.7); backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: none; border-radius: var(--radius-xl);
+      padding: 1.25rem 0.25rem 0.25rem; position: relative; overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.06);
+    }
+    .market-hint {
+      margin-top: 1rem; text-align: center;
+      font-size: 1rem; color: var(--gray-500);
+      letter-spacing: 0.01em;
+    }
+    .market-chart { width: 100%; height: 400px; }
+    @media (max-width: 768px) {
+      .market-header { flex-direction: column; align-items: flex-start; }
+      .market-chart { height: 300px; }
+    }
+
     /* --- How it works 步骤区 --- */
     .how-section { position: relative; padding: 6rem 5vw; background: var(--warm-bg); }
     .how-container { max-width: 1200px; margin: 0 auto; }
@@ -1766,7 +1797,6 @@
     }
     .how-step .step-top { display: flex; align-items: center; gap: 0.6rem; }
     .how-step .step-num { font-family: var(--font-display); font-size: 2.4rem; color: var(--gold); line-height: 1; }
-    .how-step .step-ico { font-size: 1.5rem; }
     .how-step h3 { font-family: var(--font-display); font-size: 1.35rem; margin: 0.9rem 0 0.4rem; }
     .how-step p { color: var(--gray-600); font-size: 0.95rem; line-height: 1.6; margin: 0; }
     .how-step::after {
@@ -1916,10 +1946,6 @@
             </svg>
           </button>
           <span class="date-display" id="currentDate"></span>
-          <div class="status-indicator">
-            <span class="status-dot"></span>
-            <span class="status-text">系统就绪</span>
-          </div>
         </div>
       </header>
 
@@ -1950,6 +1976,27 @@
     </div>
   </section>
 
+  <!-- MARKET SECTION (K线行情区) -->
+  <section class="market-section landing-section" id="marketSection">
+    <div class="market-container">
+      <div class="market-header reveal">
+        <div>
+          <h2 class="market-title">实时行情</h2>
+          <p class="market-sub">上证指数历史走势</p>
+        </div>
+        <div class="market-tags">
+          <span class="market-tag up">沪指 +0.86%</span>
+          <span class="market-tag up">深成指 +1.12%</span>
+          <span class="market-tag down">创业板 -0.24%</span>
+        </div>
+      </div>
+      <div class="market-card reveal">
+        <div class="market-chart" id="marketChart"></div>
+      </div>
+      <p class="market-hint">点击图表，滚动鼠标滚轮可放大缩小 K 线</p>
+    </div>
+  </section>
+
   <!-- HISTORY SECTION (暖色背景块 + 轮播) -->
   <section class="history-section landing-section" id="historySection">
     <div class="history-container">
@@ -1977,22 +2024,22 @@
       </div>
       <div class="how-grid">
         <div class="how-step reveal">
-          <div class="step-top"><span class="step-num">01</span><span class="step-ico">🔍</span></div>
+          <div class="step-top"><span class="step-num">01</span></div>
           <h3>输入标的</h3>
           <p>输入公司名称或股票代码（如 600519），前端即识别并校验标的是否有效。</p>
         </div>
         <div class="how-step reveal">
-          <div class="step-top"><span class="step-num">02</span><span class="step-ico">🤖</span></div>
+          <div class="step-top"><span class="step-num">02</span></div>
           <h3>多智能体并行分析</h3>
           <p>基本面、技术面、估值、新闻四路智能体并行研判，实时展示分析进度。</p>
         </div>
         <div class="how-step reveal">
-          <div class="step-top"><span class="step-num">03</span><span class="step-ico">📝</span></div>
+          <div class="step-top"><span class="step-num">03</span></div>
           <h3>汇总生成报告</h3>
           <p>汇总智能体整合四路结论，产出投资建议、风险提示与综合研判的完整报告。</p>
         </div>
         <div class="how-step reveal">
-          <div class="step-top"><span class="step-num">04</span><span class="step-ico">📄</span></div>
+          <div class="step-top"><span class="step-num">04</span></div>
           <h3>查看与下载</h3>
           <p>在线阅读或一键导出 PDF，随时回看历史报告。</p>
         </div>
@@ -2312,6 +2359,9 @@
     // 加载历史记录
     loadHistory();
 
+    // 市场 K 线图（lightweight-charts，CDN 失效时自动隐藏）
+    initMarketChart();
+
     // Hint tags
     document.querySelectorAll('.hint-tag').forEach(tag => {
       tag.addEventListener('click', () => {
@@ -2419,6 +2469,138 @@
       window.__refreshScrollTriggers = () => {};
     }
 
+    // 市场 K 线图（lightweight-charts；CDN 失效时隐藏区块，页面照常可用）
+    function initMarketChart() {
+      const container = document.getElementById('marketChart');
+      const section = document.getElementById('marketSection');
+      if (!container || typeof LightweightCharts === 'undefined') {
+        if (section) section.style.display = 'none';
+        return;
+      }
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      const chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth || 0,
+        height: container.clientHeight || 400,
+        layout: {
+          background: { type: 'solid', color: 'transparent' },
+          textColor: '#525252',
+          fontFamily: "'DM Sans', -apple-system, sans-serif",
+        },
+        grid: {
+          vertLines: { color: 'rgba(0,0,0,0)' },
+          horzLines: { color: 'rgba(0,0,0,0)' },
+        },
+        crosshair: {
+          mode: LightweightCharts.CrosshairMode.Normal,
+          vertLine: { color: 'rgba(201,162,39,0.5)', labelBackgroundColor: '#c9a227' },
+          horzLine: { color: 'rgba(201,162,39,0.5)', labelBackgroundColor: '#c9a227' },
+        },
+        rightPriceScale: { borderColor: 'transparent' },
+        timeScale: { borderColor: 'transparent', timeVisible: true, rightOffset: 0 },
+        autoSize: false,
+      });
+      window.__marketChart = chart; // 便于调试/测试读取时间轴范围
+
+      const candleSeries = chart.addCandlestickSeries({
+        upColor: '#b03a2e', downColor: '#1e8e5a',
+        borderUpColor: '#b03a2e', borderDownColor: '#1e8e5a',
+        wickUpColor: '#b03a2e', wickDownColor: '#1e8e5a',
+      });
+      const volSeries = chart.addHistogramSeries({
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'vol',
+      });
+      chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+
+      // 把 (candles, volumes) 数据渲染到图表
+      function renderData(candles, volumes) {
+        candleSeries.setData(candles);
+        volSeries.setData(volumes.map(v => ({ ...v, color: 'rgba(201,162,39,0.35)' })));
+        chart.timeScale().fitContent();
+        if (!reduceMotion) {
+          candleSeries.applyOptions({ baseLineColor: 'rgba(201,162,39,0.3)' });
+        }
+      }
+
+      // 回退用的模拟数据（后端不可达时使用，保证图表不空白）
+      function mockData() {
+        const candles = [];
+        const volumes = [];
+        let price = 150 + Math.random() * 20;
+        let seed = 42;
+        const rand = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+        const start = Math.floor(Date.now() / 1000 / 86400) * 86400;
+        const days = 80;
+        for (let i = 0; i < days; i++) {
+          const open = price;
+          const drift = (rand() - 0.48) * 4;
+          const close = Math.max(60, open + drift);
+          const high = Math.max(open, close) + rand() * 3;
+          const low = Math.min(open, close) - rand() * 3;
+          candles.push({ time: start - (days - i) * 86400, open, high, low, close });
+          volumes.push({ time: start - (days - i) * 86400, value: Math.round(2 + rand() * 6) });
+          price = close;
+        }
+        return { candles, volumes };
+      }
+
+      // 尝试拉取真实上证指数日K，失败回退 mock
+      async function load() {
+        try {
+          const res = await fetch(`${API_BASE}/market-kline?days=90`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          if (!json.ok || !Array.isArray(json.data) || json.data.length === 0) {
+            throw new Error(json.error || '无数据');
+          }
+          const candles = json.data.map(d => ({
+            time: d.time, open: d.open, high: d.high, low: d.low, close: d.close,
+          }));
+          const volumes = json.data.map(d => ({ time: d.time, value: d.volume }));
+          renderData(candles, volumes);
+        } catch (e) {
+          console.warn('market-kline 获取失败，回退模拟数据:', e);
+          const { candles, volumes } = mockData();
+          renderData(candles, volumes);
+        }
+      }
+      load();
+
+      // 响应容器尺寸变化
+      const ro = new ResizeObserver(() => {
+        chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+      });
+      ro.observe(container);
+      // 区块随 landing 隐藏时也重建一次尺寸
+      chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+
+      // 滚轮交互：未点击图表时不缩放也不滚动页面；点击图表聚焦后滚轮才缩放，
+      // 且聚焦时滚轮不滚动页面。
+      //   capture（container 捕获阶段）：未聚焦时 preventDefault+stopPropagation，
+      //     事件到不了内部 canvas，lightweight-charts 收不到 → 不缩放；也不滚页面。
+      //   bubble（container 冒泡阶段）：聚焦时 preventDefault+stopPropagation，
+      //     缩放已由 lightweight-charts 在 canvas 层完成，这里拦截阻止上抛到
+      //     Lenis 的 window 级监听（页面不滚动）。
+      // 注：playwright 的 mouse.wheel 无法触发 lightweight-charts 缩放，
+      //     需在真实浏览器中验证缩放效果。
+      let chartFocused = false;
+      container.addEventListener('pointerdown', () => { chartFocused = true; });
+      document.addEventListener('pointerdown', (e) => {
+        if (!container.contains(e.target)) chartFocused = false;
+      });
+      container.addEventListener('wheel', (e) => {
+        if (!chartFocused) {
+          e.stopPropagation();
+          e.preventDefault();
+        }
+      }, { passive: false, capture: true });
+      container.addEventListener('wheel', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+      }, { passive: false });
+    }
+
     // CTA 按钮 → 回首页聚焦搜索
     const ctaBtn = document.getElementById('ctaAnalyzeBtn');
     if (ctaBtn) ctaBtn.addEventListener('click', () => {
@@ -2442,10 +2624,19 @@
     document.getElementById('configCancelBtn').addEventListener('click', closeConfigModal);
     document.getElementById('configSaveBtn').addEventListener('click', saveConfig);
     document.getElementById('configTestBtn').addEventListener('click', testConfigConnectivity);
-    // 点遮罩关闭弹窗
-    document.getElementById('configModalOverlay').addEventListener('click', (e) => {
-      if (e.target === e.currentTarget) closeConfigModal();
-    });
+    // 点遮罩关闭弹窗（需按下与松开都在遮罩上，避免选中文字拖出时误关）
+    {
+      const overlay = document.getElementById('configModalOverlay');
+      const modal = document.getElementById('configModal');
+      let pressedOnOverlay = false;
+      overlay.addEventListener('mousedown', (e) => {
+        pressedOnOverlay = e.target === overlay;
+      });
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay && pressedOnOverlay) closeConfigModal();
+        pressedOnOverlay = false;
+      });
+    }
 
     let elapsedInterval = null;
     let seconds = 0;

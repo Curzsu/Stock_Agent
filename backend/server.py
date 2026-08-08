@@ -14,7 +14,7 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from pathlib import Path
 
@@ -685,6 +685,65 @@ async def test_api_config_connectivity(config: Optional[ApiConfigRequest] = None
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "FINEX API"}
+
+@app.get("/api/market-kline")
+async def market_kline(days: int = 120):
+    """返回上证指数（sh.000001）真实历史日 K 线数据。
+
+    用 baostock 日终数据（最近 N 个交易日收盘），供前端 K 线图消费。
+    包在 asyncio.to_thread + asyncio.wait_for 里，避免阻塞事件循环，
+    且 baostock 网络无响应时能有限超时，不会无限挂起。
+    返回格式与 lightweight-charts 的 candle/histogram 数据兼容：
+    time 用 Unix 秒。
+    """
+    import time as _time
+
+    def _fetch_kline() -> list:
+        ensure_logged_in()
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        # 上证指数日K，回溯约 days*2 个自然日以覆盖足够交易日
+        start_date = (datetime.now() - timedelta(days=days * 2)).strftime("%Y-%m-%d")
+        rs = safe_query(
+            lambda: bs.query_history_k_data_plus(
+                "sh.000001",
+                "date,open,high,low,close,volume,amount",
+                start_date=start_date,
+                end_date=end_date,
+                frequency="d",
+                adjustflag="3",  # 不复权（指数无需复权）
+            )
+        )
+        if rs.error_code != "0":
+            raise RuntimeError(f"baostock 查询失败: {rs.error_msg}")
+        rows = []
+        while rs.next():
+            row = rs.get_row_data()
+            d = dict(zip(rs.fields, row))
+            # 过滤空行，转成秒级时间戳
+            ts = _time.mktime(_time.strptime(d["date"], "%Y-%m-%d"))
+            rows.append({
+                "time": int(ts),
+                "open": float(d["open"]),
+                "high": float(d["high"]),
+                "low": float(d["low"]),
+                "close": float(d["close"]),
+                "volume": float(d["volume"] or 0),
+            })
+        return rows
+
+    try:
+        data = await asyncio.wait_for(
+            asyncio.to_thread(_fetch_kline),
+            timeout=BAOSTOCK_TIMEOUT_SECONDS,
+        )
+        if not data:
+            return {"ok": False, "error": "未获取到上证指数K线数据"}
+        return {"ok": True, "data": data}
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "获取行情超时，请稍后重试"}
+    except Exception as e:
+        print(f"Warning: market_kline failed: {e}")
+        return {"ok": False, "error": str(e)}
 
 # ============================================================================
 # Static files (for CSS, JS, assets)
