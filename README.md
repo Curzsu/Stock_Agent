@@ -2,7 +2,9 @@
 
 基于 LangGraph 多智能体架构的 A 股智能分析平台，集成 MCP 协议实现多维度股票评估。
 
-![image-20260401120410821](images-README/image-20260401120410821.png)
+![image-20260808121518331](images-README/image-20260808121518331.png)
+
+![image-20260808121616327](images-README/image-20260808121616327.png)
 
 ## 功能特性
 

@@ -677,20 +677,19 @@
     }
 
     .search-btn {
+      flex: none;
+      width: 50px;
+      height: 50px;
+      align-self: center;
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      padding: 1.25rem 2rem;
+      justify-content: center;
       margin: 8px;
+      padding: 0;
       background: var(--black);
       border: none;
       border-radius: var(--radius-lg);
       color: var(--white);
-      font-family: var(--font-body);
-      font-size: 0.875rem;
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
       cursor: pointer;
       position: relative;
       overflow: hidden;
@@ -708,11 +707,10 @@
     }
 
     .search-btn:hover::before { transform: translateX(0); }
-    .search-btn span { position: relative; z-index: 1; }
+    .search-btn svg { position: relative; z-index: 1; transition: transform 0.3s var(--ease-out-expo); }
     .search-btn:hover { color: var(--black); }
-
-    .btn-arrow { transition: transform 0.3s var(--ease-out-expo); }
-    .search-btn:hover .btn-arrow { transform: translateX(4px); }
+    .search-btn:hover svg { transform: translateX(4px); }
+    .search-btn:active { transform: scale(0.96); }
 
     .search-hints {
       display: flex;
@@ -1959,9 +1957,11 @@
         <div class="search-container">
           <div class="search-wrapper">
             <input type="text" class="search-input" id="stockInput" placeholder="输入股票代码或公司名称..." autocomplete="off">
-            <button class="search-btn" id="analyzeBtn">
-              <span class="btn-text">分析</span>
-              <span class="btn-arrow">→</span>
+            <button class="search-btn" id="analyzeBtn" aria-label="开始分析">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
+                <path d="M5 12h14"/>
+                <path d="m12 5 7 7-7 7"/>
+              </svg>
             </button>
           </div>
           <div class="search-hints">
@@ -2251,8 +2251,9 @@
   <div class="config-toast" id="configToast"></div>
 
   <script>
-    // API 基址（放在脚本最顶部，避免在 const 声明前被 loadHistory() 等调用触发 TDZ 报错）
-    const API_BASE = 'http://localhost:8100/api';
+    // API 基址（同源相对路径，本地与部署均可直接使用；
+    // 放在脚本最顶部，避免在 const 声明前被 loadHistory() 等调用触发 TDZ 报错）
+    const API_BASE = '/api';
 
     // Intro Animation
     const introOverlay = document.getElementById('introOverlay');
