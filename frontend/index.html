@@ -7,7 +7,7 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <!-- 动效引擎：GSAP (ScrollTrigger + SplitText) + Lenis 平滑滚动。
        CDN 不可达时页面照常可用（JS 内做了能力检测降级）。 -->
@@ -1877,6 +1877,7 @@
       .history-grid .history-card { flex-basis: 82%; }
     }
   </style>
+  <link rel="stylesheet" href="/static/workbench.css">
 </head>
 <body>
   <!-- Intro Overlay -->
@@ -2083,136 +2084,105 @@
     </div>
   </section>
 
-  <!-- ANALYSIS SECTION (深色) -->
-  <section class="analysis-section" id="analysisSection">
-    <!-- 深色模式液态玻璃光晕 -->
-    <div class="dark-glass-blob dark-blob-1"></div>
-    <div class="dark-glass-blob dark-blob-2"></div>
-
-    <div class="analysis-container">
-      <div class="progress-header">
-        <div class="progress-title-group">
-          <span class="progress-label">ANALYSIS IN PROGRESS</span>
-          <h2 class="progress-title">正在分析 <span id="analyzingStock"></span></h2>
-        </div>
-        <div class="progress-meta">
-          <span class="progress-time" id="elapsedTime">00:00</span>
-          <div class="progress-status-badge">
-            <div class="pulse-ring"></div>
-            <span id="statusText">处理中</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="agents-grid">
-        <div class="agent-card" data-agent="fundamental">
-          <span class="agent-number">01</span>
-          <div class="agent-icon-wrapper"><span class="agent-icon">📊</span></div>
-          <div class="agent-info">
-            <div class="agent-name">基本面分析</div>
-            <div class="agent-desc">财务状况<br>盈利能力<br>行业地位</div>
-            <div class="agent-status">
-              <span class="status-indicator-dot"></span>
-              <span class="status-text">等待中</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="agent-card" data-agent="technical">
-          <span class="agent-number">02</span>
-          <div class="agent-icon-wrapper"><span class="agent-icon">📈</span></div>
-          <div class="agent-info">
-            <div class="agent-name">技术分析</div>
-            <div class="agent-desc">价格趋势<br>交易量<br>技术指标</div>
-            <div class="agent-status">
-              <span class="status-indicator-dot"></span>
-              <span class="status-text">等待中</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="agent-card" data-agent="value">
-          <span class="agent-number">03</span>
-          <div class="agent-icon-wrapper"><span class="agent-icon">💰</span></div>
-          <div class="agent-info">
-            <div class="agent-name">估值分析</div>
-            <div class="agent-desc">市盈率<br>市净率<br>内在价值</div>
-            <div class="agent-status">
-              <span class="status-indicator-dot"></span>
-              <span class="status-text">等待中</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="agent-card" data-agent="news">
-          <span class="agent-number">04</span>
-          <div class="agent-icon-wrapper"><span class="agent-icon">📰</span></div>
-          <div class="agent-info">
-            <div class="agent-name">新闻分析</div>
-            <div class="agent-desc">市场情绪<br>重要事件<br>风险评估</div>
-            <div class="agent-status">
-              <span class="status-indicator-dot"></span>
-              <span class="status-text">等待中</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="agent-card" data-agent="summary">
-          <span class="agent-number">05</span>
-          <div class="agent-icon-wrapper"><span class="agent-icon">🤖</span></div>
-          <div class="agent-info">
-            <div class="agent-name">智能汇总</div>
-            <div class="agent-desc">综合研判<br>投资建议<br>风险提示</div>
-            <div class="agent-status">
-              <span class="status-indicator-dot"></span>
-              <span class="status-text">等待中</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <button class="back-btn" id="backBtn">
-      <span>←</span>
-      <span>返回首页</span>
-    </button>
-  </section>
-
-  <!-- REPORT SECTION -->
-  <section class="report-section" id="reportSection">
-    <div class="report-container">
-      <div class="report-header">
-        <h1 class="report-title" id="reportTitle">分析报告</h1>
-        <p class="report-subtitle">FINEX 金融分析智能体</p>
-        <div class="report-meta">
-          <div class="report-meta-item">
-            <span>股票代码</span>
-            <span id="reportCode">-</span>
-          </div>
-          <div class="report-meta-item">
-            <span>分析日期</span>
-            <span id="reportDate">-</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="report-content" id="reportContent">
-        <!-- Dynamic content will be inserted here -->
-      </div>
-
-      <div class="report-actions">
-        <button class="report-btn report-btn-secondary" id="backToHomeBtn">
-          <span>←</span>
-          <span>返回首页</span>
+  <!-- STOCK ANALYSIS WORKBENCH -->
+  <section class="analysis-section workbench-section" id="analysisSection">
+    <div class="workbench-ambient workbench-ambient-one" aria-hidden="true"></div>
+    <div class="workbench-ambient workbench-ambient-two" aria-hidden="true"></div>
+    <div class="analysis-workbench" id="analysisWorkbench">
+      <header class="workbench-masthead">
+        <button class="workbench-back" id="backBtn" type="button" aria-label="返回首页">
+          <span aria-hidden="true">←</span><span>返回</span>
         </button>
-        <button class="report-btn report-btn-pdf loading" id="downloadPdfBtn" disabled>
-          <span class="pdf-spinner" id="pdfSpinner"></span>
-          <span id="pdfBtnText">正在生成 PDF...</span>
-        </button>
-        <button class="report-btn report-btn-primary" id="newAnalysisBtn">
-          <span>新分析</span>
-          <span>→</span>
-        </button>
+        <div class="workbench-heading">
+          <span class="workbench-eyebrow">FINEX RESEARCH · MULTI-AGENT DESK</span>
+          <h1>正在研究 <span id="analyzingStock">股票标的</span></h1>
+          <p>五位分析师正在协同研究，每项完成后即时呈现阶段摘要。</p>
+        </div>
+        <div class="workbench-meta" aria-live="polite">
+          <span class="workbench-time" id="elapsedTime">00:00</span>
+          <span class="workbench-status"><i aria-hidden="true"></i><span id="statusText">准备中</span></span>
+        </div>
+      </header>
+
+      <div class="workbench-layout" id="workbenchRunningState">
+        <main class="agent-workspace">
+          <div class="workspace-intro">
+            <div><span class="section-index">01</span><h2>研究协同台</h2></div>
+            <span class="workspace-caption" id="completedCount">0 / 5 已完成</span>
+          </div>
+          <div class="agent-grid agents-grid" id="agentGrid">
+            <article class="workbench-agent-card agent-card" data-agent="fundamental" data-status="waiting">
+              <div class="agent-card-top"><span class="agent-number">01</span><span class="agent-discipline">FINANCIALS</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
+              <div class="agent-card-title"><span class="agent-monogram">基</span><div><h3>基本面分析师</h3><p>财务质量 · 盈利能力 · 经营韧性</p></div></div>
+              <p class="agent-summary">等待研究任务进入队列。</p>
+              <div class="agent-microchart micro-bars" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+              <button class="agent-retry" type="button" hidden>重试基本面分析</button>
+            </article>
+
+            <article class="workbench-agent-card agent-card" data-agent="technical" data-status="waiting">
+              <div class="agent-card-top"><span class="agent-number">02</span><span class="agent-discipline">TECHNICALS</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
+              <div class="agent-card-title"><span class="agent-monogram">技</span><div><h3>技术面分析师</h3><p>价格趋势 · 成交动能 · 关键区间</p></div></div>
+              <p class="agent-summary">等待研究任务进入队列。</p>
+              <div class="agent-microchart micro-trend" aria-hidden="true"><svg viewBox="0 0 320 88" preserveAspectRatio="none"><path class="micro-grid" d="M0 22H320M0 44H320M0 66H320"/><path class="micro-line-soft" d="M0 66 C42 62 55 37 92 45 S151 59 184 30 S245 14 320 24"/><path class="micro-line" d="M0 72 C35 68 64 54 95 58 S146 34 178 43 S236 23 268 28 S298 18 320 12"/></svg></div>
+              <button class="agent-retry" type="button" hidden>重试技术面分析</button>
+            </article>
+
+            <article class="workbench-agent-card agent-card" data-agent="value" data-status="waiting">
+              <div class="agent-card-top"><span class="agent-number">03</span><span class="agent-discipline">VALUATION</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
+              <div class="agent-card-title"><span class="agent-monogram">估</span><div><h3>估值分析师</h3><p>历史分位 · 行业对照 · 安全边际</p></div></div>
+              <p class="agent-summary">等待研究任务进入队列。</p>
+              <div class="agent-microchart micro-valuation" aria-hidden="true"><div class="valuation-orbit"><span></span></div><div class="valuation-rules"><i></i><i></i><i></i></div></div>
+              <button class="agent-retry" type="button" hidden>重试估值分析</button>
+            </article>
+
+            <article class="workbench-agent-card agent-card" data-agent="news" data-status="waiting">
+              <div class="agent-card-top"><span class="agent-number">04</span><span class="agent-discipline">INTELLIGENCE</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
+              <div class="agent-card-title"><span class="agent-monogram">闻</span><div><h3>新闻分析师</h3><p>市场叙事 · 事件追踪 · 风险信号</p></div></div>
+              <p class="agent-summary">等待研究任务进入队列。</p>
+              <div class="agent-microchart micro-news" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><svg viewBox="0 0 320 88" preserveAspectRatio="none"><path d="M25 50L84 22L143 57L210 29L291 46M84 22L210 29M143 57L291 46"/></svg></div>
+              <button class="agent-retry" type="button" hidden>重试新闻分析</button>
+            </article>
+
+            <article class="workbench-agent-card agent-card agent-card-summary" data-agent="summary" data-status="waiting">
+              <div class="agent-card-top"><span class="agent-number">05</span><span class="agent-discipline">SYNTHESIS</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待前置研究</span></span></div>
+              <div class="summary-card-layout">
+                <div><div class="agent-card-title"><span class="agent-monogram">综</span><div><h3>综合研判</h3><p>交叉验证 · 核心结论 · 风险边界</p></div></div><p class="agent-summary">四路研究完成后，将在此生成综合结论。</p></div>
+                <div class="agent-microchart agent-summary-chart" aria-hidden="true"><div class="synthesis-core">FINEX</div><span class="orbit-node node-one"></span><span class="orbit-node node-two"></span><span class="orbit-node node-three"></span><span class="orbit-node node-four"></span></div>
+              </div>
+            </article>
+          </div>
+        </main>
+
+        <aside class="market-overview">
+          <div class="market-header"><div><span class="section-index">02</span><h2>行情概览</h2></div><span id="marketTradeDate">等待标的识别</span></div>
+          <div class="market-quote" id="marketQuote"><strong>—</strong><span>真实历史行情</span></div>
+          <div class="market-periods" aria-label="K 线周期">
+            <button type="button" data-frequency="d" aria-pressed="true">日 K</button>
+            <button type="button" data-frequency="w" aria-pressed="false">周 K</button>
+            <button type="button" data-frequency="m" aria-pressed="false">月 K</button>
+          </div>
+          <div id="workbenchMarketChart" class="workbench-market-chart" role="img" aria-label="个股行情图加载中"><div class="market-loading"><i></i><span>识别股票后载入真实 K 线</span></div></div>
+          <div class="market-legend" aria-label="图表图例"><span class="legend-candle">K 线</span><span class="legend-ma5">MA5</span><span class="legend-ma20">MA20</span><span class="legend-volume">成交量</span></div>
+          <dl class="market-metrics" id="marketMetrics"><div><dt>市盈率 TTM</dt><dd>—</dd></div><div><dt>市净率 MRQ</dt><dd>—</dd></div><div><dt>换手率</dt><dd>—</dd></div><div><dt>成交量</dt><dd>—</dd></div></dl>
+          <p class="market-footnote">数据来自 BaoStock，展示最近交易日收盘行情，并非实时价格。</p>
+        </aside>
+      </div>
+
+      <div class="report-section workbench-report-shell" id="reportSection">
+        <div class="workbench-report" id="workbenchReport" hidden>
+          <header class="report-header">
+            <span class="workbench-eyebrow">FINEX RESEARCH REPORT</span>
+            <h1 class="report-title" id="reportTitle">分析报告</h1>
+            <div class="report-meta"><span>股票代码 <strong id="reportCode">—</strong></span><span>分析日期 <strong id="reportDate">—</strong></span></div>
+          </header>
+          <nav id="reportNavigation" aria-label="报告章节"></nav>
+          <main class="report-content" id="reportContent"></main>
+          <div class="report-actions">
+            <button class="report-btn report-btn-secondary" id="backToHomeBtn" type="button"><span>←</span><span>返回首页</span></button>
+            <button class="report-btn report-btn-pdf loading" id="downloadPdfBtn" type="button" disabled><span class="pdf-spinner" id="pdfSpinner"></span><span id="pdfBtnText">正在生成 PDF...</span></button>
+            <button class="report-btn report-btn-primary" id="newAnalysisBtn" type="button"><span>新分析</span><span>→</span></button>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -2250,6 +2220,7 @@
 
   <div class="config-toast" id="configToast"></div>
 
+  <script src="/static/workbench.js"></script>
   <script>
     // API 基址（同源相对路径，本地与部署均可直接使用；
     // 放在脚本最顶部，避免在 const 声明前被 loadHistory() 等调用触发 TDZ 报错）
@@ -2817,8 +2788,7 @@
       if (elapsedInterval) clearInterval(elapsedInterval);
       elapsedInterval = setInterval(updateTimer, 1000);
 
-      // 重置轮询超时计时，从本次恢复开始重新计算期限
-      pollAnalysisStatus._startedAt = 0;
+      // 启动/恢复后台轮询（Worker 持续轮询，从本次恢复重新计时）
       pollAnalysisStatus();
       window.scrollTo({ top: 0, behavior: 'auto' });
     }
@@ -3045,10 +3015,7 @@
         // 新分析开始，重置完成处理标志
         _completionHandled = false;
 
-        // 重置轮询超时计时，避免上一次分析的期限残留影响本次
-        pollAnalysisStatus._startedAt = 0;
-
-        // Poll for status updates
+        // 启动后台轮询（Worker 持续轮询，本次重新计时）
         pollAnalysisStatus();
 
       } catch (error) {
@@ -3059,87 +3026,132 @@
       }
     }
 
-    async function pollAnalysisStatus() {
-      if (!currentAnalysisId) return;
+    // ============ 后台轮询（Web Worker 实现）============
+    // 浏览器会对后台标签页的 setTimeout/setInterval 做节流（甚至暂停），
+    // 导致切换标签页后前端进度"卡住"。Web Worker 里的定时器不受后台节流，
+    // 因此把轮询放进 Worker——即使标签页在后台，也能持续查询后端进度，
+    // 完成后主线程照常渲染报告并弹通知。
+    const POLL_MAX_MS = 30 * 60 * 1000; // 30 分钟（> 后端 WORKFLOW_TIMEOUT_SECONDS 1200s）
+    let _pollDeadline = 0;    // 轮询超时时间戳
+    let _statusWorker = null; // 后台轮询 Worker
 
-      // 前端兜底：若后端工作流超过此时间仍未进入终态，主动停止轮询并提示，
-      // 避免分析页无限转圈卡死。值需大于后端 WORKFLOW_TIMEOUT_SECONDS(1200s)。
-      const POLL_MAX_MS = 30 * 60 * 1000; // 30 分钟
-      const startMs = Date.now();
-      if (!pollAnalysisStatus._startedAt) {
-        pollAnalysisStatus._startedAt = startMs;
-      }
-      if (startMs - pollAnalysisStatus._startedAt > POLL_MAX_MS) {
+    function stopBackgroundPolling() {
+      if (_statusWorker) { _statusWorker.terminate(); _statusWorker = null; }
+      _pollDeadline = 0;
+    }
+
+    // 处理一次轮询返回的状态（Worker 消息 / 前台补轮询共用）
+    function handlePollStatus(status) {
+      if (!status) return;
+      // 前端兜底：超过 30 分钟仍未进入终态则停止并提示，避免无限转圈
+      if (Date.now() > _pollDeadline) {
+        stopBackgroundPolling();
         clearInterval(elapsedInterval);
-        if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
-        pollAnalysisStatus._startedAt = 0;
         document.getElementById('statusText').textContent = '分析超时，请稍后重试。';
         return;
       }
+      updateAgentCards(status.progress);
 
+      if (status.status === 'completed') {
+        // 已完成且已处理过（弹过通知）：只清理，不再重复获取结果/弹窗，
+        // 否则切回前台补轮询会再次触发（无限弹窗）。
+        if (_completionHandled) { stopBackgroundPolling(); return; }
+        _completionHandled = true;
+        stopBackgroundPolling();
+        (async () => {
+          try {
+            const resultResponse = await fetch(`${API_BASE}/result/${currentAnalysisId}`);
+            const result = await resultResponse.json();
+            displayResults(result);
+            clearInterval(elapsedInterval);
+            document.getElementById('statusText').textContent = '已完成';
+            if (Notification.permission === 'granted') {
+              const name = currentQuery || '股票';
+              new Notification('股票分析完成', { body: `${name} 的分析报告已生成` });
+            }
+          } catch (e) {
+            console.error('Failed to load result:', e);
+          }
+        })();
+      } else if (status.status === 'error') {
+        stopBackgroundPolling();
+        clearInterval(elapsedInterval);
+        document.getElementById('statusText').textContent = status.error || '分析出错，请稍后重试。';
+      }
+      // status === 'running' → Worker 继续轮询，无需额外处理
+    }
+
+    // 立即补一次轮询（切回前台时快速刷新；Worker 仍在后台持续运行）
+    async function pollOnceNow() {
+      if (!currentAnalysisId) return;
       try {
         const response = await fetch(`${API_BASE}/status/${currentAnalysisId}`);
         const status = await response.json();
-
-        // Update UI based on progress
-        updateAgentCards(status.progress);
-
-        if (status.status === 'completed') {
-          // 已完成且已处理过（弹过通知）：只确保清理轮询，不再重复获取结果/弹窗，
-          // 否则每次标签页重新可见触发 visibilitychange 都会再弹一次通知（无限弹窗）。
-          if (_completionHandled) {
-            pollAnalysisStatus._startedAt = 0;
-            if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
-            return;
-          }
-          _completionHandled = true;
-          pollAnalysisStatus._startedAt = 0;
-          if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
-          // Fetch and display results
-          const resultResponse = await fetch(`${API_BASE}/result/${currentAnalysisId}`);
-          const result = await resultResponse.json();
-          displayResults(result);
-          clearInterval(elapsedInterval);
-          document.getElementById('statusText').textContent = '已完成';
-
-          // Browser notification
-          if (Notification.permission === 'granted') {
-            const name = currentQuery || '股票';
-            new Notification('股票分析完成', { body: `${name} 的分析报告已生成` });
-          }
-
-        } else if (status.status === 'error') {
-          pollAnalysisStatus._startedAt = 0;
-          if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
-          clearInterval(elapsedInterval);
-          const errorMsg = status.error || '分析出错，请稍后重试。';
-          document.getElementById('statusText').textContent = errorMsg;
-
-        } else if (status.status === 'running') {
-          // Continue polling
-          scheduleNextPoll();
-        }
-
-      } catch (error) {
-        console.error('Failed to poll status:', error);
-        scheduleNextPoll();
+        handlePollStatus(status);
+      } catch (e) {
+        // 瞬时网络错误：交给 Worker 继续轮询
       }
     }
 
-    // 轮询调度:后台标签页会被浏览器节流 setTimeout/setInterval,
-    // 切回前台时立即补一次轮询,避免分析页面"卡住不动"。
-    let _pollTimer = null;
-    function scheduleNextPoll() {
-      if (_pollTimer) clearTimeout(_pollTimer);
-      _pollTimer = setTimeout(pollAnalysisStatus, 2000);
+    // 创建内联 Web Worker，后台持续轮询 /api/status/{id}（每 2s）
+    function startBackgroundPolling() {
+      stopBackgroundPolling();
+      if (!currentAnalysisId) return;
+      const workerSource = `
+        let __timer = null, __id = null;
+        self.onmessage = (e) => {
+          const msg = e.data || {};
+          if (msg.type === 'start') {
+            __id = msg.analysisId;
+            const base = msg.base;
+            if (__timer) { clearInterval(__timer); __timer = null; }
+            const poll = async () => {
+              if (!__id) return;
+              try {
+                const res = await fetch(base + '/status/' + __id);
+                const status = await res.json();
+                self.postMessage({ type: 'status', status });
+                if (status.status === 'completed' || status.status === 'error') {
+                  if (__timer) { clearInterval(__timer); __timer = null; }
+                }
+              } catch (err) { /* 瞬时错误，继续重试 */ }
+            };
+            poll();
+            __timer = setInterval(poll, 2000);
+          }
+        };
+      `;
+      const blob = new Blob([workerSource], { type: 'application/javascript' });
+      _statusWorker = new Worker(URL.createObjectURL(blob));
+      _statusWorker.onmessage = (e) => {
+        const d = e.data || {};
+        if (d.type === 'status') handlePollStatus(d.status);
+      };
+      _statusWorker.onerror = () => {
+        // Worker 异常时退回前台定时轮询，避免完全失去进度更新
+        stopBackgroundPolling();
+        pollOnceNow();
+      };
+      _statusWorker.postMessage({ type: 'start', analysisId: currentAnalysisId, base: API_BASE });
     }
+
+    // 启动/恢复轮询（保持原入口名）
+    async function pollAnalysisStatus() {
+      if (!currentAnalysisId) return;
+      // 重置 30 分钟超时期限，从本次开始重新计时
+      _pollDeadline = Date.now() + POLL_MAX_MS;
+      // 先立即拉一次快速反馈，再启动 Worker 后台持续轮询
+      await pollOnceNow();
+      startBackgroundPolling();
+    }
+
+    // 切回前台时立即补一次轮询（Worker 本身仍在后台运行，这里只是更快刷新）
     document.addEventListener('visibilitychange', () => {
-      // 仅在分析进行中且页面重新可见时补轮询
       if (document.visibilityState === 'visible' && currentAnalysisId) {
-        if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
-        pollAnalysisStatus();
+        pollOnceNow();
       }
     });
+
 
     function updateAgentCards(progress) {
       const statusMap = {

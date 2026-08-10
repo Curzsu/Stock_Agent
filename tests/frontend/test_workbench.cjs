@@ -1,10 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   derivePhase,
   normalizeAgentDetails,
   buildMarketSeries,
   completedResultKeys,
+  createController,
 } = require('../../frontend/workbench.js');
 
 test('derivePhase distinguishes partial and summarizing states', () => {
@@ -39,4 +42,20 @@ test('completedResultKeys returns only newly available completed dimensions', ()
     completedResultKeys({ fundamental: 'completed', technical: 'running' }, new Set()),
     ['fundamental'],
   );
+});
+
+test('index contains one in-place workbench and all five agent cards', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  assert.match(html, /id="analysisWorkbench"/);
+  assert.match(html, /id="workbenchMarketChart"/);
+  assert.match(html, /data-agent="fundamental"/);
+  assert.match(html, /data-agent="technical"/);
+  assert.match(html, /data-agent="value"/);
+  assert.match(html, /data-agent="news"/);
+  assert.match(html, /data-agent="summary"/);
+  assert.doesNotMatch(html, /id="goToReportBtn"/);
+});
+
+test('workbench exposes a DOM controller factory', () => {
+  assert.equal(typeof createController, 'function');
 });
