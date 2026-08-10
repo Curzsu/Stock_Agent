@@ -3023,6 +3023,7 @@
         });
 
         const data = await response.json();
+        if (!response.ok || !data.analysis_id) throw new Error(data.detail || '启动分析失败');
         currentAnalysisId = data.analysis_id;
         // 新分析开始，重置完成处理标志
         _completionHandled = false;
@@ -3032,9 +3033,9 @@
 
       } catch (error) {
         console.error('Failed to start analysis:', error);
-        document.getElementById('statusText').textContent = '连接失败';
-        // Fall back to demo mode
-        runDemoSimulation();
+        clearInterval(elapsedInterval);
+        elapsedInterval = null;
+        workbench.renderError(error.message || '连接失败，请稍后重试。');
       }
     }
 
@@ -3092,9 +3093,13 @@
     const POLL_MAX_MS = 30 * 60 * 1000; // 30 分钟（> 后端 WORKFLOW_TIMEOUT_SECONDS 1200s）
     let _pollDeadline = 0;    // 轮询超时时间戳
     let _statusWorker = null; // 后台轮询 Worker
+    let _statusWorkerUrl = null;
+    let _fallbackPollTimer = null;
 
     function stopBackgroundPolling(resetDeadline = true) {
       if (_statusWorker) { _statusWorker.terminate(); _statusWorker = null; }
+      if (_statusWorkerUrl) { URL.revokeObjectURL(_statusWorkerUrl); _statusWorkerUrl = null; }
+      if (_fallbackPollTimer) { clearInterval(_fallbackPollTimer); _fallbackPollTimer = null; }
       if (resetDeadline) _pollDeadline = 0;
     }
 
@@ -3158,6 +3163,12 @@
       }
     }
 
+    function startFallbackPolling() {
+      stopBackgroundPolling(false);
+      pollOnceNow();
+      _fallbackPollTimer = setInterval(pollOnceNow, 2000);
+    }
+
     // 创建内联 Web Worker，后台持续轮询 /api/status/{id}（每 2s）
     function startBackgroundPolling() {
       stopBackgroundPolling(false);
@@ -3187,16 +3198,19 @@
         };
       `;
       const blob = new Blob([workerSource], { type: 'application/javascript' });
-      _statusWorker = new Worker(URL.createObjectURL(blob));
+      _statusWorkerUrl = URL.createObjectURL(blob);
+      try {
+        _statusWorker = new Worker(_statusWorkerUrl);
+      } catch (error) {
+        startFallbackPolling();
+        return;
+      }
       _statusWorker.onmessage = (e) => {
         const d = e.data || {};
         if (d.type === 'status') handlePollStatus(d.status);
       };
-      _statusWorker.onerror = () => {
-        // Worker 异常时退回前台定时轮询，避免完全失去进度更新
-        stopBackgroundPolling();
-        pollOnceNow();
-      };
+      // Worker 异常时退回前台定时轮询，避免完全失去进度更新。
+      _statusWorker.onerror = startFallbackPolling;
       _statusWorker.postMessage({ type: 'start', analysisId: currentAnalysisId, base: API_BASE });
     }
 
@@ -3207,7 +3221,7 @@
       _pollDeadline = Date.now() + POLL_MAX_MS;
       // 先立即拉一次快速反馈，再启动 Worker 后台持续轮询
       await pollOnceNow();
-      startBackgroundPolling();
+      if (_pollDeadline > 0 && !_completionHandled) startBackgroundPolling();
     }
 
     // 切回前台时立即补一次轮询（Worker 本身仍在后台运行，这里只是更快刷新）

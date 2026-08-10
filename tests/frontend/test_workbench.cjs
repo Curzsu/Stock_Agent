@@ -117,3 +117,27 @@ test('starting the worker preserves the active polling deadline', () => {
   assert.match(html, /function stopBackgroundPolling\(resetDeadline = true\)/);
   assert.match(html, /function startBackgroundPolling\(\)\s*\{\s*stopBackgroundPolling\(false\)/s);
 });
+
+test('worker failures keep polling through a foreground fallback', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  assert.match(html, /function startFallbackPolling\(\)\s*\{\s*stopBackgroundPolling\(false\)/s);
+  assert.match(html, /_fallbackPollTimer\s*=\s*setInterval\(pollOnceNow,\s*2000\)/);
+  assert.match(html, /_statusWorker\.onerror\s*=\s*startFallbackPolling/);
+});
+
+test('initial status polling does not restart after a terminal response', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  assert.match(html, /await pollOnceNow\(\);\s*if \(_pollDeadline > 0 && !_completionHandled\) startBackgroundPolling\(\);/s);
+});
+
+test('analysis startup rejects an unsuccessful API response', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  assert.match(html, /if \(!response\.ok \|\| !data\.analysis_id\) throw new Error/);
+});
+
+test('real analysis startup errors never switch to fabricated demo data', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const functionSource = html.match(/async function startRealAnalysis[\s\S]+?(?=\n    async function loadWorkbenchMarket)/)[0];
+  assert.match(functionSource, /workbench\.renderError/);
+  assert.doesNotMatch(functionSource, /runDemoSimulation/);
+});
