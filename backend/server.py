@@ -149,6 +149,109 @@ def summarize_agent_text(text: str, limit: int = 180) -> str:
             return cleaned[:limit] + ("…" if len(cleaned) > limit else "")
     return ""
 
+
+AGENT_TASK_LABELS = {
+    "fundamental": "正在分析财务表现与经营质量",
+    "technical": "正在分析价格趋势与关键价位",
+    "value": "正在比较历史估值分位与行业水平",
+    "news": "正在检索新闻、公告与风险事件",
+    "summary": "正在汇总四路研究并生成综合结论",
+}
+
+
+def mark_agent_status(session, agent_key: str, status: str) -> None:
+    """Record an agent lifecycle transition without inventing percentages."""
+    now = datetime.now().isoformat()
+    detail = session.agent_details[agent_key]
+    if status == "running":
+        detail.update({
+            "status": "running",
+            "started_at": now,
+            "completed_at": None,
+            "execution_time_ms": None,
+            "error": None,
+        })
+        session.progress[agent_key] = "running"
+        session.current_task = AGENT_TASK_LABELS[agent_key]
+    elif status == "completed" and detail["status"] != "failed":
+        detail["status"] = "completed"
+        detail["completed_at"] = detail["completed_at"] or now
+        session.progress[agent_key] = "completed"
+
+
+def record_agent_result(session, agent_key: str, result: dict, completed_at=None) -> None:
+    """Persist one agent result as soon as the workflow node finishes."""
+    result_key, error_key = AGENT_RESULT_KEYS[agent_key]
+    data = dict((result or {}).get("data", {}))
+    detail = session.agent_details[agent_key]
+    finished = completed_at or datetime.now().isoformat()
+    detail["completed_at"] = finished
+
+    if detail.get("started_at"):
+        start = datetime.fromisoformat(detail["started_at"])
+        end = datetime.fromisoformat(finished)
+        detail["execution_time_ms"] = max(
+            0,
+            int((end - start).total_seconds() * 1000),
+        )
+
+    if data.get(error_key):
+        detail.update({
+            "status": "failed",
+            "error": str(data[error_key]),
+            "summary": "",
+            "result_available": False,
+        })
+        session.progress[agent_key] = "failed"
+        return
+
+    text = str(data.get(result_key, "") or "")
+    if text:
+        session.partial_results[result_key] = text
+    detail.update({
+        "status": "completed",
+        "error": None,
+        "summary": summarize_agent_text(text),
+        "result_available": bool(text),
+    })
+    session.progress[agent_key] = "completed"
+
+
+def rebuild_session_result(session, data: Optional[Dict[str, Any]] = None) -> None:
+    """Rebuild the public report payload from durable session data."""
+    merged = {**session.initial_data, **session.partial_results, **(data or {})}
+    report_path = merged.get("report_path", "")
+    pdf_path = merged.get("pdf_path")
+    pdf_available = False
+    if report_path:
+        expected_pdf_path = derive_pdf_path(report_path)
+        pdf_available = os.path.exists(expected_pdf_path)
+        if pdf_available and not pdf_path:
+            pdf_path = expected_pdf_path
+
+    stock_code = str(merged.get("stock_code", "") or "")
+    public_stock_code = stock_code.split(".", 1)[-1] if "." in stock_code else stock_code
+    missing_dimensions = [
+        key
+        for key in ("fundamental", "technical", "value", "news")
+        if session.agent_details[key]["status"] == "failed"
+    ]
+    session.result = {
+        "company_name": session.company_name or merged.get("company_name", ""),
+        "stock_code": public_stock_code,
+        "query": session.query or merged.get("query", ""),
+        "fundamental_analysis": merged.get("fundamental_analysis", ""),
+        "technical_analysis": merged.get("technical_analysis", ""),
+        "value_analysis": merged.get("value_analysis", ""),
+        "news_analysis": merged.get("news_analysis", ""),
+        "final_report": merged.get("final_report", ""),
+        "analysis_date": merged.get("current_date", ""),
+        "report_path": report_path,
+        "pdf_path": pdf_path or "",
+        "pdf_available": pdf_available,
+        "missing_dimensions": missing_dimensions,
+    }
+
 class AnalyzeRequest(BaseModel):
     """Request model for analysis endpoint"""
     query: str
@@ -395,6 +498,8 @@ async def run_analysis_workflow(analysis_id: str, query: str):
             else:
                 initial_data["stock_code"] = stock_code
 
+        session.initial_data = dict(initial_data)
+
         initial_state = AgentState(
             messages=[],
             data=initial_data,
@@ -403,7 +508,10 @@ async def run_analysis_workflow(analysis_id: str, query: str):
 
         # Build workflow（共享工厂，与 main.py 共用同一拓扑）
         async def _progress_cb(agent_key, status):
-            session.progress[agent_key] = status
+            mark_agent_status(session, agent_key, status)
+
+        async def _result_cb(agent_key, result):
+            record_agent_result(session, agent_key, result)
 
         app_workflow = build_workflow(
             fundamental_agent=fundamental_agent,
@@ -412,6 +520,7 @@ async def run_analysis_workflow(analysis_id: str, query: str):
             news_agent=news_agent,
             summary_agent=summary_agent,
             progress_callback=_progress_cb,
+            result_callback=_result_cb,
         )
 
         # Update progress for each agent
@@ -433,38 +542,18 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         )
 
         # Update status
-        session.status = "completed"
+        has_failed_dimensions = any(
+            session.agent_details[key]["status"] == "failed"
+            for key in ("fundamental", "technical", "value", "news")
+        )
+        session.status = "degraded" if has_failed_dimensions else "completed"
         session.end_time = datetime.now().isoformat()
+        session.current_task = None
 
         # Extract results
         if final_state and final_state.get("data"):
             data = final_state["data"]
-            report_path = data.get("report_path", "")
-            pdf_path = data.get("pdf_path")  # May be None if background task not finished
-
-            # File-system-based PDF check: derive expected PDF path from MD path
-            # reports/md/xxx.md -> reports/pdf/xxx.pdf (shared helper)
-            pdf_available = False
-            if report_path:
-                expected_pdf_path = derive_pdf_path(report_path)
-                pdf_available = os.path.exists(expected_pdf_path)
-                if pdf_available and not pdf_path:
-                    pdf_path = expected_pdf_path
-
-            session.result = {
-                "company_name": company_name,
-                "stock_code": stock_code,
-                "query": query,
-                "fundamental_analysis": data.get("fundamental_analysis", ""),
-                "technical_analysis": data.get("technical_analysis", ""),
-                "value_analysis": data.get("value_analysis", ""),
-                "news_analysis": data.get("news_analysis", ""),
-                "final_report": data.get("final_report", ""),
-                "analysis_date": current_date_en,
-                "report_path": report_path,
-                "pdf_path": pdf_path or "",
-                "pdf_available": pdf_available
-            }
+            rebuild_session_result(session, data)
 
     except asyncio.TimeoutError:
         session.status = "error"
@@ -567,7 +656,7 @@ async def get_analysis_result(analysis_id: str):
 
     session = analysis_sessions[analysis_id]
 
-    if session.status != "completed":
+    if session.status not in {"completed", "degraded"}:
         raise HTTPException(status_code=400, detail=f"Analysis not completed. Current status: {session.status}")
 
     return session.result
@@ -584,7 +673,7 @@ async def download_report_pdf(analysis_id: str):
 
     session = analysis_sessions[analysis_id]
 
-    if session.status != "completed":
+    if session.status not in {"completed", "degraded"}:
         raise HTTPException(status_code=400, detail=f"Analysis not completed. Current status: {session.status}")
 
     # Get report_path from result

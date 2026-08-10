@@ -228,6 +228,10 @@ class TestEndToEnd(unittest.TestCase):
         summary_patchers, llm_calls = _patch_summary(
             report_content="# 贵州茅台(sh.600519) 综合分析报告\n\n## 执行摘要\n模拟综合报告。"
         )
+        result_keys = []
+
+        async def result_callback(agent_key, _result):
+            result_keys.append(agent_key)
 
         try:
             app = build_workflow(
@@ -236,6 +240,7 @@ class TestEndToEnd(unittest.TestCase):
                 value_agent=value_agent,
                 news_agent=news_agent,
                 summary_agent=summary_agent,
+                result_callback=result_callback,
             )
 
             final_state = asyncio.run(app.ainvoke(_make_initial_state()))
@@ -268,6 +273,10 @@ class TestEndToEnd(unittest.TestCase):
 
         # 3) summary 的 LLM 被真正调用过一次
         self.assertEqual(len(llm_calls), 1, "summary 应恰好调用一次 LLM ainvoke")
+        self.assertEqual(
+            set(result_keys),
+            {"fundamental", "technical", "value", "news", "summary"},
+        )
 
     def test_workflow_handles_agent_failure_gracefully(self):
         """

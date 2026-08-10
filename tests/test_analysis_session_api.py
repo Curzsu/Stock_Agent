@@ -64,6 +64,32 @@ class TestAnalysisSessionApi(unittest.TestCase):
             "盈利能力保持稳健，现金流良好。",
         )
 
+    def test_record_agent_result_persists_summary_and_error(self):
+        now = "2026-08-10T12:00:00"
+        self.session.agent_details["fundamental"]["started_at"] = now
+        server.record_agent_result(
+            self.session,
+            "fundamental",
+            {"data": {"fundamental_analysis": "# 结论\n\n盈利能力保持稳健。"}},
+            completed_at=now,
+        )
+        detail = self.session.agent_details["fundamental"]
+        self.assertEqual(detail["status"], "completed")
+        self.assertTrue(detail["result_available"])
+        self.assertEqual(
+            self.session.partial_results["fundamental_analysis"],
+            "# 结论\n\n盈利能力保持稳健。",
+        )
+
+        server.record_agent_result(
+            self.session,
+            "news",
+            {"data": {"news_analysis_error": "新闻源不可用"}},
+            completed_at=now,
+        )
+        self.assertEqual(self.session.agent_details["news"]["status"], "failed")
+        self.assertEqual(self.session.progress["news"], "failed")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
