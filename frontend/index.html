@@ -2828,6 +2828,10 @@
         currentMarketCode = (statusData && statusData.stock_code) || result.stock_code || null;
         if (currentMarketCode) loadWorkbenchMarket(currentMarketFrequency);
         goToReport();
+        if (statusData && window.FinexWorkbench.hasRunningAgents(statusData)) {
+          _completionHandled = false;
+          pollAnalysisStatus();
+        }
       } catch (e) {
         console.error('Failed to load report:', e);
       }

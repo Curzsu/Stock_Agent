@@ -128,8 +128,12 @@ class TestAnalysisSessionApi(unittest.TestCase):
         self.assertEqual(response.json(), payload)
 
     def test_retry_accepts_only_failed_analysis_agents(self):
-        self.session.status = "degraded"
         self.session.agent_details["news"]["status"] = "failed"
+
+        response = self.client.post("/api/analysis/session1/retry/news")
+        self.assertEqual(response.status_code, 409)
+
+        self.session.status = "degraded"
         with patch.object(server, "retry_agent_and_summary", new=AsyncMock()):
             response = self.client.post("/api/analysis/session1/retry/news")
         self.assertEqual(response.status_code, 202)
@@ -140,6 +144,13 @@ class TestAnalysisSessionApi(unittest.TestCase):
 
         response = self.client.post("/api/analysis/session1/retry/summary")
         self.assertEqual(response.status_code, 422)
+
+    def test_retry_rejects_parallel_agent_runs(self):
+        self.session.status = "degraded"
+        self.session.agent_details["news"]["status"] = "failed"
+        self.session.agent_details["value"]["status"] = "running"
+        response = self.client.post("/api/analysis/session1/retry/news")
+        self.assertEqual(response.status_code, 409)
 
     def test_retry_helper_replaces_failed_dimension_and_reruns_summary(self):
         import asyncio

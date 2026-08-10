@@ -30,14 +30,24 @@
     }]));
   }
 
+  function hasRunningAgents(payload = {}) {
+    const progress = payload.progress || {};
+    const details = payload.agent_details || {};
+    return AGENTS.some(
+      (key) => progress[key] === 'running' || (details[key] || {}).status === 'running',
+    );
+  }
+
   function derivePhase(payload = {}) {
-    if (payload.status === 'completed') return 'completed';
-    if (payload.status === 'degraded') return 'degraded';
+    const running = hasRunningAgents(payload);
+    if (payload.status === 'completed' && !running) return 'completed';
+    if (payload.status === 'degraded' && !running) return 'degraded';
     if (payload.status === 'error') return 'error';
     const values = payload.progress || {};
     if (values.summary === 'running') return 'summarizing';
+    if (running && ['completed', 'degraded'].includes(payload.status)) return 'running';
     if (AGENTS.some((key) => values[key] === 'completed')) return 'partial';
-    return payload.status === 'running' ? 'running' : 'starting';
+    return payload.status === 'running' || running ? 'running' : 'starting';
   }
 
   function agentSummaryForStatus(agentKey, detail = {}) {
@@ -72,7 +82,8 @@
   }
 
   function nextRequests(previousProgress = {}, payload = {}) {
-    const terminal = payload.status === 'completed' || payload.status === 'degraded';
+    const terminal = (payload.status === 'completed' || payload.status === 'degraded')
+      && !hasRunningAgents(payload);
     if (terminal) return { partial: false, result: true };
     const progress = payload.progress || {};
     const partial = AGENTS.some(
@@ -81,6 +92,11 @@
         && previousProgress[key] !== 'completed',
     );
     return { partial, result: false };
+  }
+
+  function canRetryAgent(payload = {}, agentStatus = 'waiting') {
+    const terminal = payload.status === 'completed' || payload.status === 'degraded';
+    return terminal && !hasRunningAgents(payload) && agentStatus === 'failed';
   }
 
   function resolveChartSize(width, height) {
@@ -200,7 +216,7 @@
         const summary = agentSummaryForStatus(key, { ...detail, status });
         setText(card.querySelector('.agent-summary'), summary);
         const retry = card.querySelector('.agent-retry');
-        if (retry) retry.hidden = status !== 'failed';
+        if (retry) retry.hidden = !canRetryAgent(payload, status);
       });
       setText(completedCount, `${completed} / 5 已完成`);
     }
@@ -378,11 +394,13 @@
   return {
     AGENTS,
     normalizeAgentDetails,
+    hasRunningAgents,
     derivePhase,
     agentSummaryForStatus,
     buildMarketSeries,
     completedResultKeys,
     nextRequests,
+    canRetryAgent,
     resolveChartSize,
     stripLeadingMarkdownHeading,
     createController,

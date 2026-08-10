@@ -719,6 +719,13 @@ async def retry_failed_agent(analysis_id: str, agent_key: str):
     session = analysis_sessions.get(analysis_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
+    if session.status not in {"completed", "degraded"}:
+        raise HTTPException(status_code=409, detail="Wait for the current workflow to finish before retrying")
+    if any(
+        detail.get("status") == "running"
+        for detail in session.agent_details.values()
+    ):
+        raise HTTPException(status_code=409, detail="Another analysis task is still running")
     if session.agent_details[agent_key]["status"] != "failed":
         raise HTTPException(status_code=409, detail="This analysis dimension is not failed")
 

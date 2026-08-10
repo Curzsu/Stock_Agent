@@ -12,6 +12,7 @@ const {
   resolveChartSize,
   stripLeadingMarkdownHeading,
   agentSummaryForStatus,
+  canRetryAgent,
 } = require('../../frontend/workbench.js');
 
 test('derivePhase distinguishes partial and summarizing states', () => {
@@ -23,6 +24,10 @@ test('derivePhase distinguishes partial and summarizing states', () => {
     status: 'running',
     progress: { fundamental: 'completed', technical: 'completed', value: 'completed', news: 'completed', summary: 'running' },
   }), 'summarizing');
+  assert.equal(derivePhase({
+    status: 'degraded',
+    progress: { fundamental: 'failed', technical: 'failed', value: 'running', news: 'failed', summary: 'completed' },
+  }), 'running');
 });
 
 test('normalizeAgentDetails supplies safe waiting defaults', () => {
@@ -99,6 +104,19 @@ test('nextRequests fetches final result for completed or degraded sessions', () 
   );
 });
 
+test('a stale terminal status does not finish while a retry is running', () => {
+  assert.deepEqual(
+    nextRequests({}, { status: 'degraded', progress: { value: 'running' } }),
+    { partial: false, result: false },
+  );
+});
+
+test('retry actions are enabled only when the session is terminal and idle', () => {
+  assert.equal(canRetryAgent({ status: 'running', progress: {} }, 'failed'), false);
+  assert.equal(canRetryAgent({ status: 'degraded', progress: { value: 'running' } }, 'failed'), false);
+  assert.equal(canRetryAgent({ status: 'degraded', progress: { value: 'failed' } }, 'failed'), true);
+});
+
 test('resolveChartSize supplies a visible fallback while the workbench is hidden', () => {
   assert.deepEqual(resolveChartSize(0, 0), { width: 640, height: 430 });
   assert.deepEqual(resolveChartSize(360, 500), { width: 360, height: 500 });
@@ -163,4 +181,5 @@ test('opening a degraded report restores its agent lifecycle states', () => {
   const functionSource = html.match(/async function viewCompletedReport[\s\S]+?(?=\n    \/\/ Demo mode flag)/)[0];
   assert.match(functionSource, /fetch\(`\$\{API_BASE\}\/status\/\$\{analysisId\}`\)/);
   assert.match(functionSource, /workbench\.updateStatus\(statusData\)/);
+  assert.match(functionSource, /hasRunningAgents\(statusData\).*pollAnalysisStatus\(\)/s);
 });
