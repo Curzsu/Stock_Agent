@@ -28,7 +28,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 import baostock as bs
 
 # Import agent system components
@@ -115,6 +115,40 @@ async def _shutdown_cleanup_mcp():
 # Data Models
 # ============================================================================
 
+AGENT_RESULT_KEYS = {
+    "fundamental": ("fundamental_analysis", "fundamental_analysis_error"),
+    "technical": ("technical_analysis", "technical_analysis_error"),
+    "value": ("value_analysis", "value_analysis_error"),
+    "news": ("news_analysis", "news_analysis_error"),
+    "summary": ("final_report", "summary_error"),
+}
+
+
+def new_agent_details() -> Dict[str, Dict[str, Any]]:
+    """Return isolated, JSON-safe lifecycle state for every analysis agent."""
+    return {
+        key: {
+            "status": "waiting",
+            "started_at": None,
+            "completed_at": None,
+            "execution_time_ms": None,
+            "summary": "",
+            "result_available": False,
+            "error": None,
+        }
+        for key in AGENT_RESULT_KEYS
+    }
+
+
+def summarize_agent_text(text: str, limit: int = 180) -> str:
+    """Extract a compact plain-text preview from a Markdown analysis result."""
+    for block in re.split(r"\n\s*\n", text or ""):
+        cleaned = re.sub(r"^[#>*\-\s]+", "", block).strip()
+        cleaned = re.sub(r"[*_`]+", "", cleaned).strip()
+        if len(cleaned) >= 8:
+            return cleaned[:limit] + ("…" if len(cleaned) > limit else "")
+    return ""
+
 class AnalyzeRequest(BaseModel):
     """Request model for analysis endpoint"""
     query: str
@@ -147,6 +181,10 @@ class AnalysisStatus(BaseModel):
     error: Optional[str] = None
     query: Optional[str] = None
     company_name: Optional[str] = None
+    agent_details: Dict[str, Dict[str, Any]] = Field(default_factory=new_agent_details)
+    partial_results: Dict[str, Any] = Field(default_factory=dict)
+    current_task: Optional[str] = None
+    initial_data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ApiConfigRequest(BaseModel):
@@ -507,8 +545,19 @@ async def get_analysis_status(analysis_id: str):
         "progress": session.progress,
         "start_time": session.start_time,
         "end_time": session.end_time,
-        "error": session.error
+        "error": session.error,
+        "agent_details": session.agent_details,
+        "current_task": session.current_task,
     }
+
+
+@app.get("/api/analysis/{analysis_id}/partial")
+async def get_partial_results(analysis_id: str):
+    """Return analysis dimensions that have completed so far."""
+    session = analysis_sessions.get(analysis_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return {"analysis_id": analysis_id, "results": session.partial_results}
 
 @app.get("/api/result/{analysis_id}")
 async def get_analysis_result(analysis_id: str):
