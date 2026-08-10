@@ -82,6 +82,7 @@ htmlcov/
 # Node.js (if frontend uses npm/yarn)
 # ========================================
 node_modules/
+.worktrees/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
