@@ -253,6 +253,65 @@ def rebuild_session_result(session, data: Optional[Dict[str, Any]] = None) -> No
         "missing_dimensions": missing_dimensions,
     }
 
+
+RETRYABLE_AGENTS = {
+    "fundamental": fundamental_agent,
+    "technical": technical_agent,
+    "value": value_agent,
+    "news": news_agent,
+}
+
+
+async def retry_agent_and_summary(
+    analysis_id: str,
+    agent_key: str,
+    selected_agent=None,
+    summarizer=None,
+) -> None:
+    """Rerun one failed dimension, then rebuild the synthesis in place."""
+    session = analysis_sessions[analysis_id]
+    agent_fn = selected_agent or RETRYABLE_AGENTS[agent_key]
+    summary_fn = summarizer or summary_agent
+    try:
+        state = AgentState(
+            messages=[],
+            data={**session.initial_data, **session.partial_results},
+            metadata={"analysis_id": analysis_id, "retry": agent_key},
+        )
+        if session.agent_details[agent_key]["status"] != "running":
+            mark_agent_status(session, agent_key, "running")
+        agent_result = await agent_fn(state)
+        record_agent_result(session, agent_key, agent_result)
+        if session.agent_details[agent_key]["status"] == "failed":
+            session.status = "degraded"
+            session.current_task = None
+            return
+
+        summary_state = AgentState(
+            messages=[],
+            data={**session.initial_data, **session.partial_results},
+            metadata={"analysis_id": analysis_id, "retry": agent_key},
+        )
+        mark_agent_status(session, "summary", "running")
+        summary_result = await summary_fn(summary_state)
+        record_agent_result(session, "summary", summary_result)
+        rebuild_session_result(session, (summary_result or {}).get("data", {}))
+        session.status = "degraded" if any(
+            session.agent_details[key]["status"] == "failed"
+            for key in RETRYABLE_AGENTS
+        ) else "completed"
+        session.end_time = datetime.now().isoformat()
+        session.current_task = None
+    except Exception as exc:
+        session.agent_details[agent_key].update({
+            "status": "failed",
+            "error": str(exc),
+            "completed_at": datetime.now().isoformat(),
+        })
+        session.progress[agent_key] = "failed"
+        session.status = "degraded"
+        session.current_task = None
+
 class AnalyzeRequest(BaseModel):
     """Request model for analysis endpoint"""
     query: str
@@ -648,6 +707,23 @@ async def get_partial_results(analysis_id: str):
     if session is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return {"analysis_id": analysis_id, "results": session.partial_results}
+
+
+@app.post("/api/analysis/{analysis_id}/retry/{agent_key}", status_code=202)
+async def retry_failed_agent(analysis_id: str, agent_key: str):
+    """Schedule a retry for one failed analysis dimension."""
+    if agent_key not in RETRYABLE_AGENTS:
+        raise HTTPException(status_code=422, detail="Only analysis dimensions can be retried")
+    session = analysis_sessions.get(analysis_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    if session.agent_details[agent_key]["status"] != "failed":
+        raise HTTPException(status_code=409, detail="This analysis dimension is not failed")
+
+    mark_agent_status(session, agent_key, "running")
+    session.status = "running"
+    asyncio.create_task(retry_agent_and_summary(analysis_id, agent_key))
+    return {"analysis_id": analysis_id, "agent": agent_key, "status": "retrying"}
 
 @app.get("/api/result/{analysis_id}")
 async def get_analysis_result(analysis_id: str):

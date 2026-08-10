@@ -1,7 +1,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -124,6 +124,49 @@ class TestAnalysisSessionApi(unittest.TestCase):
             response = self.client.get("/api/stock-market?code=600519")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), payload)
+
+    def test_retry_accepts_only_failed_analysis_agents(self):
+        self.session.status = "degraded"
+        self.session.agent_details["news"]["status"] = "failed"
+        with patch.object(server, "retry_agent_and_summary", new=AsyncMock()):
+            response = self.client.post("/api/analysis/session1/retry/news")
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["status"], "retrying")
+
+        response = self.client.post("/api/analysis/session1/retry/fundamental")
+        self.assertEqual(response.status_code, 409)
+
+        response = self.client.post("/api/analysis/session1/retry/summary")
+        self.assertEqual(response.status_code, 422)
+
+    def test_retry_helper_replaces_failed_dimension_and_reruns_summary(self):
+        import asyncio
+
+        self.session.status = "degraded"
+        self.session.initial_data = {"query": "贵州茅台", "stock_code": "sh.600519"}
+        self.session.partial_results = {"fundamental_analysis": "基本面结果"}
+        self.session.agent_details["news"]["status"] = "failed"
+        self.session.progress["news"] = "failed"
+        summary_inputs = []
+
+        async def fake_news(state):
+            return {"data": {**state["data"], "news_analysis": "新闻重试结果"}}
+
+        async def fake_summary(state):
+            summary_inputs.append(dict(state["data"]))
+            return {"data": {**state["data"], "final_report": "重建后的综合报告"}}
+
+        asyncio.run(server.retry_agent_and_summary(
+            "session1",
+            "news",
+            selected_agent=fake_news,
+            summarizer=fake_summary,
+        ))
+
+        self.assertEqual(self.session.partial_results["fundamental_analysis"], "基本面结果")
+        self.assertEqual(self.session.partial_results["news_analysis"], "新闻重试结果")
+        self.assertEqual(len(summary_inputs), 1)
+        self.assertEqual(summary_inputs[0]["news_analysis"], "新闻重试结果")
 
 
 if __name__ == "__main__":
