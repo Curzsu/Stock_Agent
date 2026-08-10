@@ -40,6 +40,30 @@ DEFAULT_K_FIELDS = [
 ]
 
 # 股票基本信息的默认字段
+# Baostock weekly/monthly endpoints reject daily-only fields such as
+# preclose, pctChg and valuation metrics with error code 10004012.
+PERIOD_K_FIELDS = [
+    "date",
+    "code",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount",
+    "adjustflag",
+]
+
+
+def get_k_fields(frequency: str, fields: Optional[List[str]]) -> List[str]:
+    """Select valid default K-line fields without rewriting explicit input."""
+    if fields is not None:
+        return fields
+    if (frequency or "d").lower() in {"w", "m"}:
+        return PERIOD_K_FIELDS
+    return DEFAULT_K_FIELDS
+
+
 DEFAULT_BASIC_FIELDS = [
     "code",        # 股票代码
     "tradeStatus", # 交易状态
@@ -147,7 +171,11 @@ class BaostockDataSource(FinancialDataSource):
         
         try:
             # 格式化请求字段，如果未指定则使用默认K线字段
-            formatted_fields = self._format_fields(fields, DEFAULT_K_FIELDS)
+            selected_fields = get_k_fields(frequency, fields)
+            formatted_fields = self._format_fields(
+                selected_fields,
+                DEFAULT_K_FIELDS,
+            )
             logger.debug(
                 f"Requesting fields from Baostock: {formatted_fields}")
 
