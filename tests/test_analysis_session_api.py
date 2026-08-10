@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -89,6 +90,40 @@ class TestAnalysisSessionApi(unittest.TestCase):
         )
         self.assertEqual(self.session.agent_details["news"]["status"], "failed")
         self.assertEqual(self.session.progress["news"], "failed")
+
+    def test_stock_market_endpoint_returns_structured_payload(self):
+        payload = {
+            "ok": True,
+            "code": "sh.600519",
+            "latest_trade_date": "2026-08-07",
+            "quote": {"close": 1482.5, "pct_change": 1.28},
+            "candles": [
+                {
+                    "time": "2026-08-06",
+                    "open": 1460,
+                    "high": 1480,
+                    "low": 1450,
+                    "close": 1470,
+                    "volume": 100,
+                    "ma5": None,
+                    "ma20": None,
+                },
+                {
+                    "time": "2026-08-07",
+                    "open": 1470,
+                    "high": 1490,
+                    "low": 1462,
+                    "close": 1482.5,
+                    "volume": 120,
+                    "ma5": None,
+                    "ma20": None,
+                },
+            ],
+        }
+        with patch.object(server, "fetch_stock_market", return_value=payload):
+            response = self.client.get("/api/stock-market?code=600519")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), payload)
 
 
 if __name__ == "__main__":

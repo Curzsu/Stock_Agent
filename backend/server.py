@@ -60,6 +60,7 @@ from src.utils.pdf_converter import derive_pdf_path
 
 # Import shared stock info extractor (P2-3: 合并 main.py 与 server.py 两套 extract_stock_info)
 from src.utils.stock_extractor import extract_stock_info, COMPANY_CODE_MAP
+from backend.market_data import fetch_stock_market
 
 # Import MCP cleanup function
 from src.tools.mcp_client import close_mcp_client_sessions
@@ -882,6 +883,33 @@ async def market_kline(days: int = 120):
     except Exception as e:
         print(f"Warning: market_kline failed: {e}")
         return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/stock-market")
+async def stock_market(code: str, days: int = 120, frequency: str = "d"):
+    """Return real, end-of-day K-line data for one A-share stock."""
+    if days < 20 or days > 500:
+        raise HTTPException(status_code=422, detail="days must be between 20 and 500")
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(
+                fetch_stock_market,
+                code,
+                days,
+                frequency,
+                ensure_logged_in,
+                safe_query,
+                bs,
+            ),
+            timeout=BAOSTOCK_TIMEOUT_SECONDS,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "获取个股行情超时，请稍后重试"}
+    except Exception as exc:
+        print(f"Warning: stock_market failed: {exc}")
+        return {"ok": False, "error": str(exc)}
 
 # ============================================================================
 # Static files (for CSS, JS, assets)
