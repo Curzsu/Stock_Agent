@@ -18,6 +18,8 @@ _mcp_client_instance = None
 _mcp_session_context = None
 _mcp_session = None
 _mcp_session_loop = None
+_mcp_session_task = None
+_mcp_session_close_event = None
 
 _mcp_init_lock = None
 _mcp_init_lock_loop = None
@@ -93,21 +95,28 @@ def _get_init_lock(current_loop):
     return _mcp_init_lock
 
 
-async def _close_partial_session(session_context, error):
-    if session_context is None:
-        return
+async def _run_session_owner(client, ready, close_event):
+    """Own MCP context entry and exit in one asyncio task."""
     try:
-        await session_context.__aexit__(
-            type(error) if error is not None else None,
-            error,
-            error.__traceback__ if error is not None else None,
-        )
-    except Exception as close_error:
-        logger.error(
-            f"{ERROR_ICON} Failed to close partially initialized MCP session: "
-            f"{close_error}",
-            exc_info=True,
-        )
+        session_context = client.session("a_share_mcp_v2")
+        async with session_context as session:
+            loaded_tools = await load_mcp_tools(session)
+            if not ready.done():
+                ready.set_result((session_context, session, loaded_tools))
+            if loaded_tools:
+                await close_event.wait()
+    except asyncio.CancelledError:
+        if not ready.done():
+            ready.cancel()
+        raise
+    except BaseException as error:
+        if not ready.done():
+            ready.set_exception(error)
+        else:
+            logger.error(
+                f"{ERROR_ICON} Persistent MCP session owner failed: {error}",
+                exc_info=True,
+            )
 
 
 async def get_mcp_tools():
@@ -119,6 +128,7 @@ async def get_mcp_tools():
     """
     global _mcp_client_instance, _mcp_tools
     global _mcp_session_context, _mcp_session, _mcp_session_loop
+    global _mcp_session_task, _mcp_session_close_event
 
     current_loop = asyncio.get_running_loop()
     if _mcp_tools is not None:
@@ -141,16 +151,17 @@ async def get_mcp_tools():
         logger.info(
             f"{WAIT_ICON} Opening persistent MCP session 'a_share_mcp_v2'..."
         )
-        session_context = None
+        owner_task = None
         try:
             client = MultiServerMCPClient(SERVER_CONFIGS)
-            session_context = client.session("a_share_mcp_v2")
-            session = await asyncio.wait_for(
-                session_context.__aenter__(),
-                timeout=60.0,
+            ready = current_loop.create_future()
+            close_event = asyncio.Event()
+            owner_task = asyncio.create_task(
+                _run_session_owner(client, ready, close_event),
+                name="persistent-mcp-session-owner",
             )
-            loaded_tools = await asyncio.wait_for(
-                load_mcp_tools(session),
+            session_context, session, loaded_tools = await asyncio.wait_for(
+                asyncio.shield(ready),
                 timeout=60.0,
             )
 
@@ -159,7 +170,7 @@ async def get_mcp_tools():
                     f"{ERROR_ICON} MCP server returned no tools. "
                     "The session will close and the next call may retry."
                 )
-                await _close_partial_session(session_context, None)
+                await asyncio.gather(owner_task, return_exceptions=True)
                 return []
 
             protected_tools = serialize_mcp_tools(loaded_tools)
@@ -167,6 +178,8 @@ async def get_mcp_tools():
             _mcp_session_context = session_context
             _mcp_session = session
             _mcp_session_loop = current_loop
+            _mcp_session_task = owner_task
+            _mcp_session_close_event = close_event
             _mcp_tools = protected_tools
             logger.info(
                 f"{SUCCESS_ICON} Loaded {len(_mcp_tools)} tools through the "
@@ -174,7 +187,9 @@ async def get_mcp_tools():
             )
             return _mcp_tools
         except Exception as error:
-            await _close_partial_session(session_context, error)
+            if owner_task is not None:
+                owner_task.cancel()
+                await asyncio.gather(owner_task, return_exceptions=True)
             logger.error(
                 f"{ERROR_ICON} Failed to initialize MCP client or load tools: "
                 f"{error}. Result not cached; the next call will retry.",
@@ -187,13 +202,15 @@ async def close_mcp_client_sessions():
     """Exit the persistent MCP context once and reset all cached state."""
     global _mcp_client_instance, _mcp_tools
     global _mcp_session_context, _mcp_session, _mcp_session_loop
+    global _mcp_session_task, _mcp_session_close_event
     global _mcp_init_lock, _mcp_init_lock_loop
     global _mcp_tool_lock, _mcp_tool_lock_loop
 
     with _mcp_close_mutex:
-        session_context = _mcp_session_context
+        owner_task = _mcp_session_task
+        close_event = _mcp_session_close_event
         if (
-            session_context is None
+            owner_task is None
             and _mcp_client_instance is None
             and _mcp_tools is None
         ):
@@ -206,14 +223,17 @@ async def close_mcp_client_sessions():
         _mcp_session_context = None
         _mcp_session = None
         _mcp_session_loop = None
+        _mcp_session_task = None
+        _mcp_session_close_event = None
         _mcp_init_lock = None
         _mcp_init_lock_loop = None
         _mcp_tool_lock = None
         _mcp_tool_lock_loop = None
 
-    if session_context is not None:
+    if owner_task is not None:
         try:
-            await session_context.__aexit__(None, None, None)
+            close_event.set()
+            await owner_task
             logger.info(f"{SUCCESS_ICON} Persistent MCP session closed.")
         except Exception as error:
             logger.error(

@@ -28,6 +28,8 @@ class TestMcpToolSerialization(unittest.IsolatedAsyncioTestCase):
             "_mcp_session_context",
             "_mcp_session",
             "_mcp_session_loop",
+            "_mcp_session_task",
+            "_mcp_session_close_event",
             "_mcp_init_lock",
             "_mcp_init_lock_loop",
             "_mcp_tool_lock",
@@ -96,6 +98,8 @@ class TestMcpToolSerialization(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.enter_count, 1)
         self.assertEqual(context.exit_count, 0)
         self.assertEqual(load_count, 1)
+        await mcp_client.close_mcp_client_sessions()
+        self.assertEqual(context.exit_count, 1)
 
     async def test_close_persistent_session_is_idempotent(self):
         class FakeSessionContext:
@@ -150,6 +154,54 @@ class TestMcpToolSerialization(unittest.IsolatedAsyncioTestCase):
             "_mcp_session_loop",
         ):
             self.assertIsNone(getattr(mcp_client, name))
+
+    async def test_session_entry_and_exit_run_in_same_task(self):
+        class TaskBoundSessionContext:
+            def __init__(self):
+                self.enter_task = None
+                self.exit_task = None
+
+            async def __aenter__(self):
+                self.enter_task = asyncio.current_task()
+                return object()
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                self.exit_task = asyncio.current_task()
+
+        class FakeClient:
+            def __init__(self, context):
+                self.context = context
+
+            def session(self, name):
+                return self.context
+
+        async def probe() -> str:
+            return "ok"
+
+        context = TaskBoundSessionContext()
+        loaded_tools = [
+            StructuredTool.from_function(
+                name="task_identity_probe",
+                description="Probe MCP session task ownership.",
+                coroutine=probe,
+            )
+        ]
+        with (
+            patch.object(
+                mcp_client,
+                "MultiServerMCPClient",
+                return_value=FakeClient(context),
+            ),
+            patch.object(
+                mcp_client,
+                "load_mcp_tools",
+                return_value=loaded_tools,
+            ),
+        ):
+            await mcp_client.get_mcp_tools()
+            await mcp_client.close_mcp_client_sessions()
+
+        self.assertIs(context.enter_task, context.exit_task)
 
     async def test_concurrent_tool_calls_are_serialized(self):
         if not hasattr(mcp_client, "serialize_mcp_tools"):
