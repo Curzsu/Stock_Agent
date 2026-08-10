@@ -11,6 +11,7 @@ const {
   nextRequests,
   resolveChartSize,
   stripLeadingMarkdownHeading,
+  agentSummaryForStatus,
 } = require('../../frontend/workbench.js');
 
 test('derivePhase distinguishes partial and summarizing states', () => {
@@ -28,6 +29,21 @@ test('normalizeAgentDetails supplies safe waiting defaults', () => {
   const details = normalizeAgentDetails({ fundamental: { status: 'completed', summary: '稳健' } });
   assert.equal(details.fundamental.summary, '稳健');
   assert.equal(details.news.status, 'waiting');
+});
+
+test('running agents show active research copy before a partial result exists', () => {
+  assert.equal(
+    agentSummaryForStatus('technical', { status: 'running', summary: '', error: null }),
+    '正在核对价格趋势、成交动能与关键压力区。',
+  );
+  assert.equal(
+    agentSummaryForStatus('technical', { status: 'completed', summary: '阶段结论', error: null }),
+    '阶段结论',
+  );
+  assert.equal(
+    agentSummaryForStatus('technical', { status: 'failed', summary: '', error: '模型不可用' }),
+    '模型不可用',
+  );
 });
 
 test('buildMarketSeries preserves real candles and skips missing moving averages', () => {
@@ -140,4 +156,11 @@ test('real analysis startup errors never switch to fabricated demo data', () => 
   const functionSource = html.match(/async function startRealAnalysis[\s\S]+?(?=\n    async function loadWorkbenchMarket)/)[0];
   assert.match(functionSource, /workbench\.renderError/);
   assert.doesNotMatch(functionSource, /runDemoSimulation/);
+});
+
+test('opening a degraded report restores its agent lifecycle states', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const functionSource = html.match(/async function viewCompletedReport[\s\S]+?(?=\n    \/\/ Demo mode flag)/)[0];
+  assert.match(functionSource, /fetch\(`\$\{API_BASE\}\/status\/\$\{analysisId\}`\)/);
+  assert.match(functionSource, /workbench\.updateStatus\(statusData\)/);
 });

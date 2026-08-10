@@ -2807,9 +2807,13 @@
     // 查看已完成分析的报告
     async function viewCompletedReport(analysisId) {
       try {
-        const res = await fetch(`${API_BASE}/result/${analysisId}`);
+        const [res, statusRes] = await Promise.all([
+          fetch(`${API_BASE}/result/${analysisId}`),
+          fetch(`${API_BASE}/status/${analysisId}`),
+        ]);
         if (!res.ok) return;
         const result = await res.json();
+        const statusData = statusRes.ok ? await statusRes.json() : null;
         currentAnalysisId = analysisId;
         currentResult = result;
         heroSection.style.display = 'none';
@@ -2817,7 +2821,11 @@
         setLandingVisible(false);
         analysisSection.classList.add('active');
         workbench.reset(result.company_name || result.stock_code || '股票标的');
-        currentMarketCode = result.stock_code || null;
+        if (statusData) {
+          workbench.updateStatus(statusData);
+          previousProgress = { ...(statusData.progress || {}) };
+        }
+        currentMarketCode = (statusData && statusData.stock_code) || result.stock_code || null;
         if (currentMarketCode) loadWorkbenchMarket(currentMarketFrequency);
         goToReport();
       } catch (e) {

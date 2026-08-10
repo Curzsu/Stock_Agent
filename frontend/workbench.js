@@ -4,6 +4,20 @@
   else root.FinexWorkbench = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   const AGENTS = ['fundamental', 'technical', 'value', 'news', 'summary'];
+  const WAITING_SUMMARIES = {
+    fundamental: '等待研究任务进入队列。',
+    technical: '等待研究任务进入队列。',
+    value: '等待研究任务进入队列。',
+    news: '等待研究任务进入队列。',
+    summary: '四路研究完成后，将在此生成综合结论。',
+  };
+  const RUNNING_SUMMARIES = {
+    fundamental: '正在核对财务质量、盈利能力与经营韧性。',
+    technical: '正在核对价格趋势、成交动能与关键压力区。',
+    value: '正在计算历史估值分位，并与行业水平进行比较。',
+    news: '正在检索公开信息、重要事件与潜在风险信号。',
+    summary: '正在交叉验证四路研究，并生成综合研判。',
+  };
 
   function normalizeAgentDetails(input = {}) {
     return Object.fromEntries(AGENTS.map((key) => [key, {
@@ -24,6 +38,13 @@
     if (values.summary === 'running') return 'summarizing';
     if (AGENTS.some((key) => values[key] === 'completed')) return 'partial';
     return payload.status === 'running' ? 'running' : 'starting';
+  }
+
+  function agentSummaryForStatus(agentKey, detail = {}) {
+    if (detail.summary) return detail.summary;
+    if (detail.status === 'failed' && detail.error) return detail.error;
+    if (detail.status === 'running') return RUNNING_SUMMARIES[agentKey] || '正在进行研究。';
+    return WAITING_SUMMARIES[agentKey] || '等待研究任务进入队列。';
   }
 
   function buildMarketSeries(payload = {}) {
@@ -130,14 +151,6 @@
       completed: '已完成',
       failed: '需要重试',
     };
-    const waitingSummaries = {
-      fundamental: '等待研究任务进入队列。',
-      technical: '等待研究任务进入队列。',
-      value: '等待研究任务进入队列。',
-      news: '等待研究任务进入队列。',
-      summary: '四路研究完成后，将在此生成综合结论。',
-    };
-
     function setText(element, value) {
       if (element) element.textContent = value == null ? '' : String(value);
     }
@@ -155,7 +168,7 @@
         card.dataset.status = 'waiting';
         card.classList.remove('active', 'complete');
         setText(card.querySelector('.status-text'), key === 'summary' ? '等待前置研究' : '等待');
-        setText(card.querySelector('.agent-summary'), waitingSummaries[key]);
+        setText(card.querySelector('.agent-summary'), WAITING_SUMMARIES[key]);
         const retry = card.querySelector('.agent-retry');
         if (retry) retry.hidden = true;
       });
@@ -184,7 +197,7 @@
           ? '等待前置研究'
           : (agentStatusLabels[status] || status);
         setText(card.querySelector('.status-text'), `${label}${elapsed}`);
-        const summary = detail.summary || (status === 'failed' ? detail.error : '') || waitingSummaries[key];
+        const summary = agentSummaryForStatus(key, { ...detail, status });
         setText(card.querySelector('.agent-summary'), summary);
         const retry = card.querySelector('.agent-retry');
         if (retry) retry.hidden = status !== 'failed';
@@ -366,6 +379,7 @@
     AGENTS,
     normalizeAgentDetails,
     derivePhase,
+    agentSummaryForStatus,
     buildMarketSeries,
     completedResultKeys,
     nextRequests,
