@@ -109,6 +109,31 @@ class TestBuildWorkflow(unittest.TestCase):
         self.assertEqual(completed_keys, keys,
                          f"所有 agent 都应触发 completed，实际: {completed_keys}")
 
+    def test_result_callback_receives_each_agent_result(self):
+        from src.utils.workflow_builder import build_workflow
+
+        results = {}
+
+        async def result_cb(agent_key, result):
+            results[agent_key] = result["data"]
+
+        app = build_workflow(
+            fundamental_agent=_make_fake_agent("fundamental_analysis", "F"),
+            technical_agent=_make_fake_agent("technical_analysis", "T"),
+            value_agent=_make_fake_agent("value_analysis", "V"),
+            news_agent=_make_fake_agent("news_analysis", "N"),
+            summary_agent=_make_fake_agent("final_report", "R"),
+            result_callback=result_cb,
+        )
+
+        asyncio.run(app.ainvoke(_make_initial_state()))
+
+        self.assertEqual(results["fundamental"]["fundamental_analysis"], "F")
+        self.assertEqual(results["technical"]["technical_analysis"], "T")
+        self.assertEqual(results["value"]["value_analysis"], "V")
+        self.assertEqual(results["news"]["news_analysis"], "N")
+        self.assertEqual(results["summary"]["final_report"], "R")
+
     def test_no_progress_callback_works(self):
         """不传 progress_callback（CLI 路径）时图仍正常执行。"""
         from src.utils.workflow_builder import build_workflow

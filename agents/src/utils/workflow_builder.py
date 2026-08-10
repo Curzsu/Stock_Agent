@@ -30,6 +30,7 @@ def build_workflow(
     news_agent: Callable,
     summary_agent: Callable,
     progress_callback: Optional[Callable[[str, str], Awaitable[None]]] = None,
+    result_callback: Optional[Callable[[str, dict], Awaitable[None]]] = None,
 ):
     """构建并编译金融分析工作流图。
 
@@ -52,11 +53,11 @@ def build_workflow(
     workflow.add_node("start_node", lambda state: state)
 
     # 5 个 agent 节点。有 progress_callback 时包装一层，否则挂裸 agent。
-    workflow.add_node("fundamental_analyst", _wrap(fundamental_agent, "fundamental", progress_callback))
-    workflow.add_node("technical_analyst", _wrap(technical_agent, "technical", progress_callback))
-    workflow.add_node("value_analyst", _wrap(value_agent, "value", progress_callback))
-    workflow.add_node("news_analyst", _wrap(news_agent, "news", progress_callback))
-    workflow.add_node("summarizer", _wrap(summary_agent, "summary", progress_callback))
+    workflow.add_node("fundamental_analyst", _wrap(fundamental_agent, "fundamental", progress_callback, result_callback))
+    workflow.add_node("technical_analyst", _wrap(technical_agent, "technical", progress_callback, result_callback))
+    workflow.add_node("value_analyst", _wrap(value_agent, "value", progress_callback, result_callback))
+    workflow.add_node("news_analyst", _wrap(news_agent, "news", progress_callback, result_callback))
+    workflow.add_node("summarizer", _wrap(summary_agent, "summary", progress_callback, result_callback))
 
     # 入口点
     workflow.set_entry_point("start_node")
@@ -79,15 +80,19 @@ def build_workflow(
     return workflow.compile()
 
 
-def _wrap(agent, agent_key, progress_callback):
+def _wrap(agent, agent_key, progress_callback, result_callback):
     """用 progress 回调包装 agent。无 callback 时返回原 agent（零开销）。"""
-    if progress_callback is None:
+    if progress_callback is None and result_callback is None:
         return agent
 
     async def wrapped(state):
-        await progress_callback(agent_key, "running")
+        if progress_callback is not None:
+            await progress_callback(agent_key, "running")
         result = await agent(state)
-        await progress_callback(agent_key, "completed")
+        if result_callback is not None:
+            await result_callback(agent_key, result)
+        if progress_callback is not None:
+            await progress_callback(agent_key, "completed")
         return result
 
     return wrapped
