@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>FINEX | 金融分析智能体</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%232b241b'/%3E%3Cpath d='M17 15h33v7H25v8h21v7H25v15h-8z' fill='%23d1b06a'/%3E%3C/svg%3E">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3092,9 +3093,9 @@
     let _pollDeadline = 0;    // 轮询超时时间戳
     let _statusWorker = null; // 后台轮询 Worker
 
-    function stopBackgroundPolling() {
+    function stopBackgroundPolling(resetDeadline = true) {
       if (_statusWorker) { _statusWorker.terminate(); _statusWorker = null; }
-      _pollDeadline = 0;
+      if (resetDeadline) _pollDeadline = 0;
     }
 
     // 处理一次轮询返回的状态（Worker 消息 / 前台补轮询共用）
@@ -3159,7 +3160,7 @@
 
     // 创建内联 Web Worker，后台持续轮询 /api/status/{id}（每 2s）
     function startBackgroundPolling() {
-      stopBackgroundPolling();
+      stopBackgroundPolling(false);
       if (!currentAnalysisId) return;
       const workerSource = `
         let __timer = null, __id = null;
@@ -3288,7 +3289,7 @@
       content.innerHTML = sections.map(([id, title, value]) => `
         <section class="report-analysis-block" id="report-${id}">
           <h2 class="report-section-title">${title}</h2>
-          <div class="report-text">${formatAnalysisMarkdown(value)}</div>
+          <div class="report-text">${formatAnalysisMarkdown(FinexWorkbench.stripLeadingMarkdownHeading(value))}</div>
         </section>
       `).join('');
 

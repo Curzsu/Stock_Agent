@@ -168,7 +168,8 @@
   backdrop-filter: blur(8px);
 }
 
-.agent-workspace { padding: clamp(14px, 1.5vw, 22px); border-radius: 26px; }
+.agent-workspace { min-width: 0; padding: clamp(14px, 1.5vw, 22px); border-radius: 26px; }
+.market-overview { min-width: 0; }
 
 .workspace-intro,
 .market-header {
@@ -277,7 +278,12 @@
 
 .workbench-agent-card.complete,
 .workbench-agent-card[data-status="completed"],
-.agent-card.complete { border-color: rgba(73, 111, 92, .42); }
+.agent-card.complete {
+  border-color: rgba(73, 111, 92, .42);
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.38), rgba(73,111,92,.035) 58%),
+    var(--wb-paper-raised);
+}
 .workbench-agent-card[data-status="failed"] { border-color: rgba(155, 77, 67, .45); }
 
 @keyframes workbenchScan {
@@ -393,6 +399,7 @@
 
 .micro-bars {
   display: flex;
+  height: 80px;
   align-items: end;
   justify-content: space-around;
   gap: 8px;

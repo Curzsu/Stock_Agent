@@ -62,6 +62,19 @@
     return { partial, result: false };
   }
 
+  function resolveChartSize(width, height) {
+    return {
+      width: Number(width) > 0 ? Number(width) : 640,
+      height: Number(height) > 0 ? Number(height) : 430,
+    };
+  }
+
+  function stripLeadingMarkdownHeading(value) {
+    return String(value == null ? '' : value)
+      .replace(/^\s*#{1,6}\s+[^\r\n]+(?:\r?\n\s*)?/, '')
+      .trim();
+  }
+
   function createController(root, options = {}) {
     if (!root || typeof root.querySelector !== 'function') {
       throw new TypeError('A workbench root element is required');
@@ -86,6 +99,21 @@
     let chart = null;
     let chartSeries = null;
     let partialResults = {};
+    let chartResizeObserver = null;
+
+    const ResizeObserverCtor = root.ownerDocument.defaultView
+      && root.ownerDocument.defaultView.ResizeObserver;
+    if (marketChartElement && ResizeObserverCtor) {
+      chartResizeObserver = new ResizeObserverCtor(() => {
+        if (!chart) return;
+        const size = resolveChartSize(
+          marketChartElement.clientWidth,
+          marketChartElement.clientHeight,
+        );
+        chart.applyOptions(size);
+      });
+      chartResizeObserver.observe(marketChartElement);
+    }
 
     const phaseLabels = {
       starting: '正在识别股票标的',
@@ -214,9 +242,12 @@
       if (chartLibrary && typeof chartLibrary.createChart === 'function') {
         if (chart && typeof chart.remove === 'function') chart.remove();
         marketChartElement.replaceChildren();
+        const chartSize = resolveChartSize(
+          marketChartElement.clientWidth,
+          marketChartElement.clientHeight,
+        );
         chart = chartLibrary.createChart(marketChartElement, {
-          width: marketChartElement.clientWidth,
-          height: marketChartElement.clientHeight,
+          ...chartSize,
           layout: { background: { color: 'transparent' }, textColor: '#74695b' },
           grid: { vertLines: { color: 'rgba(83,64,41,.06)' }, horzLines: { color: 'rgba(83,64,41,.06)' } },
           rightPriceScale: { borderColor: 'rgba(83,64,41,.16)' },
@@ -315,6 +346,7 @@
     function destroy() {
       cleanup.splice(0).forEach((dispose) => dispose());
       if (chart && typeof chart.remove === 'function') chart.remove();
+      if (chartResizeObserver) chartResizeObserver.disconnect();
       chart = null;
       chartSeries = null;
     }
@@ -337,6 +369,8 @@
     buildMarketSeries,
     completedResultKeys,
     nextRequests,
+    resolveChartSize,
+    stripLeadingMarkdownHeading,
     createController,
   };
 });

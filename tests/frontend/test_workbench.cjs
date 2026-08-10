@@ -9,6 +9,8 @@ const {
   completedResultKeys,
   createController,
   nextRequests,
+  resolveChartSize,
+  stripLeadingMarkdownHeading,
 } = require('../../frontend/workbench.js');
 
 test('derivePhase distinguishes partial and summarizing states', () => {
@@ -57,6 +59,11 @@ test('index contains one in-place workbench and all five agent cards', () => {
   assert.doesNotMatch(html, /id="goToReportBtn"/);
 });
 
+test('index declares an inline favicon to avoid a noisy 404', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  assert.match(html, /rel="icon" href="data:image\/svg\+xml/);
+});
+
 test('workbench exposes a DOM controller factory', () => {
   assert.equal(typeof createController, 'function');
 });
@@ -74,4 +81,39 @@ test('nextRequests fetches final result for completed or degraded sessions', () 
     nextRequests({}, { status: 'degraded', progress: {} }),
     { partial: false, result: true },
   );
+});
+
+test('resolveChartSize supplies a visible fallback while the workbench is hidden', () => {
+  assert.deepEqual(resolveChartSize(0, 0), { width: 640, height: 430 });
+  assert.deepEqual(resolveChartSize(360, 500), { width: 360, height: 500 });
+});
+
+test('stripLeadingMarkdownHeading removes only the report source heading', () => {
+  assert.equal(
+    stripLeadingMarkdownHeading('# 基本面分析\n\n盈利能力稳健。'),
+    '盈利能力稳健。',
+  );
+  assert.equal(stripLeadingMarkdownHeading('盈利能力稳健。'), '盈利能力稳健。');
+});
+
+test('completed cards keep the warm workbench surface', () => {
+  const css = fs.readFileSync(path.join(__dirname, '../../frontend/workbench.css'), 'utf8');
+  assert.match(css, /\.agent-card\.complete\s*\{[^}]*background:/s);
+});
+
+test('fundamental bars have a definite height for percentage bars', () => {
+  const css = fs.readFileSync(path.join(__dirname, '../../frontend/workbench.css'), 'utf8');
+  assert.match(css, /\.micro-bars\s*\{[^}]*height:\s*80px/s);
+});
+
+test('workbench columns can shrink to a mobile viewport', () => {
+  const css = fs.readFileSync(path.join(__dirname, '../../frontend/workbench.css'), 'utf8');
+  assert.match(css, /\.agent-workspace\s*\{[^}]*min-width:\s*0/s);
+  assert.match(css, /\.market-overview\s*\{[^}]*min-width:\s*0/s);
+});
+
+test('starting the worker preserves the active polling deadline', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  assert.match(html, /function stopBackgroundPolling\(resetDeadline = true\)/);
+  assert.match(html, /function startBackgroundPolling\(\)\s*\{\s*stopBackgroundPolling\(false\)/s);
 });
