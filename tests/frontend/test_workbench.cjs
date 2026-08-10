@@ -8,6 +8,7 @@ const {
   buildMarketSeries,
   completedResultKeys,
   createController,
+  nextRequests,
 } = require('../../frontend/workbench.js');
 
 test('derivePhase distinguishes partial and summarizing states', () => {
@@ -58,4 +59,19 @@ test('index contains one in-place workbench and all five agent cards', () => {
 
 test('workbench exposes a DOM controller factory', () => {
   assert.equal(typeof createController, 'function');
+});
+
+test('nextRequests fetches partials only when a dimension newly completes', () => {
+  const requests = nextRequests(
+    { fundamental: 'running', technical: 'running' },
+    { progress: { fundamental: 'completed', technical: 'running' } },
+  );
+  assert.deepEqual(requests, { partial: true, result: false });
+});
+
+test('nextRequests fetches final result for completed or degraded sessions', () => {
+  assert.deepEqual(
+    nextRequests({}, { status: 'degraded', progress: {} }),
+    { partial: false, result: true },
+  );
 });

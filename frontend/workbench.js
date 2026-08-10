@@ -50,6 +50,18 @@
     );
   }
 
+  function nextRequests(previousProgress = {}, payload = {}) {
+    const terminal = payload.status === 'completed' || payload.status === 'degraded';
+    if (terminal) return { partial: false, result: true };
+    const progress = payload.progress || {};
+    const partial = AGENTS.some(
+      (key) => key !== 'summary'
+        && progress[key] === 'completed'
+        && previousProgress[key] !== 'completed',
+    );
+    return { partial, result: false };
+  }
+
   function createController(root, options = {}) {
     if (!root || typeof root.querySelector !== 'function') {
       throw new TypeError('A workbench root element is required');
@@ -258,7 +270,9 @@
     }
 
     function renderReport(result = {}) {
-      if (runningState) runningState.hidden = true;
+      const hasMissingDimensions = Array.isArray(result.missing_dimensions)
+        && result.missing_dimensions.length > 0;
+      if (runningState) runningState.hidden = !hasMissingDimensions;
       if (report) report.hidden = false;
       setText(root.querySelector('#reportTitle'), `${result.company_name || '股票'}分析报告`);
       setText(root.querySelector('#reportCode'), result.stock_code || '—');
@@ -322,6 +336,7 @@
     derivePhase,
     buildMarketSeries,
     completedResultKeys,
+    nextRequests,
     createController,
   };
 });

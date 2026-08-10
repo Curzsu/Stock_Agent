@@ -2362,6 +2362,22 @@
     const stockInput = document.getElementById('stockInput');
     const heroSection = document.getElementById('heroSection');
     const analysisSection = document.getElementById('analysisSection');
+    let previousProgress = {};
+    let currentMarketCode = null;
+    let currentMarketFrequency = 'd';
+    let marketRequestToken = 0;
+    const workbench = window.FinexWorkbench.createController(
+      document.getElementById('analysisWorkbench'),
+      {
+        LightweightCharts: window.LightweightCharts,
+        onFrequencyChange: (frequency) => {
+          currentMarketFrequency = frequency;
+          loadWorkbenchMarket(frequency);
+        },
+        onRetry: (agentKey) => retryFailedAgent(agentKey),
+        renderReportContent: renderWorkbenchReportContent,
+      },
+    );
 
     analyzeBtn.addEventListener('click', startAnalysis);
     stockInput.addEventListener('keypress', (e) => {
@@ -2372,10 +2388,6 @@
       analysisSection.classList.remove('active');
       clearInterval(elapsedInterval);
       elapsedInterval = null;
-
-      // Clean up report button if exists
-      const reportBtn = document.getElementById('goToReportBtn');
-      if (reportBtn) reportBtn.remove();
       // 不清 currentResult，已完成的分析可从历史卡片重新进入
 
       goHome();
@@ -2747,8 +2759,10 @@
       // 恢复分析也视为新的处理流程，重置完成处理标志
       _completionHandled = false;
       currentResult = null;
-      const oldReportBtn = document.getElementById('goToReportBtn');
-      if (oldReportBtn) oldReportBtn.remove();
+      previousProgress = {};
+      currentMarketCode = null;
+      currentQuery = displayName;
+      workbench.reset(displayName);
 
       heroSection.style.display = 'none';
       historySection.style.display = 'none';
@@ -2756,22 +2770,18 @@
       analysisSection.classList.add('active');
       if (window.__refreshScrollTriggers) window.__refreshScrollTriggers();
 
-      document.getElementById('analyzingStock').textContent = displayName;
-
-      document.querySelectorAll('.agent-card').forEach(card => {
-        card.classList.remove('active', 'complete');
-        card.querySelector('.status-text').textContent = '等待中';
-      });
-
-      document.getElementById('statusText').textContent = '处理中';
-
       // 从后端获取开始时间，计算已过去的秒数
       try {
         const statusRes = await fetch(`${API_BASE}/status/${analysisId}`);
         if (statusRes.ok) {
           const statusData = await statusRes.json();
           // 先用已有的进度更新卡片
-          if (statusData.progress) updateAgentCards(statusData.progress);
+          workbench.updateStatus(statusData);
+          previousProgress = { ...(statusData.progress || {}) };
+          if (statusData.stock_code) {
+            currentMarketCode = statusData.stock_code;
+            loadWorkbenchMarket(currentMarketFrequency);
+          }
 
           if (statusData.start_time) {
             const startTime = new Date(statusData.start_time);
@@ -2799,7 +2809,15 @@
         const res = await fetch(`${API_BASE}/result/${analysisId}`);
         if (!res.ok) return;
         const result = await res.json();
+        currentAnalysisId = analysisId;
         currentResult = result;
+        heroSection.style.display = 'none';
+        historySection.style.display = 'none';
+        setLandingVisible(false);
+        analysisSection.classList.add('active');
+        workbench.reset(result.company_name || result.stock_code || '股票标的');
+        currentMarketCode = result.stock_code || null;
+        if (currentMarketCode) loadWorkbenchMarket(currentMarketFrequency);
         goToReport();
       } catch (e) {
         console.error('Failed to load report:', e);
@@ -2949,8 +2967,10 @@
 
       // Clean up previous analysis state
       currentResult = null;
-      const oldReportBtn = document.getElementById('goToReportBtn');
-      if (oldReportBtn) oldReportBtn.remove();
+      previousProgress = {};
+      currentMarketCode = null;
+      currentMarketFrequency = 'd';
+      workbench.reset(input);
 
       heroSection.style.transition = 'opacity 0.4s ease';
       heroSection.style.opacity = '0';
@@ -2965,15 +2985,6 @@
         if (window.__refreshScrollTriggers) window.__refreshScrollTriggers();
         window.scrollTo({ top: 0, behavior: 'instant' });
       }, 400);
-
-      document.getElementById('analyzingStock').textContent = input;
-
-      document.querySelectorAll('.agent-card').forEach(card => {
-        card.classList.remove('active', 'complete');
-        card.querySelector('.status-text').textContent = '等待中';
-      });
-
-      document.getElementById('statusText').textContent = '处理中';
 
       seconds = 0;
       updateTimer();
@@ -3026,6 +3037,52 @@
       }
     }
 
+    async function loadWorkbenchMarket(frequency = currentMarketFrequency) {
+      if (!currentMarketCode) return;
+      const requestToken = ++marketRequestToken;
+      try {
+        const response = await fetch(
+          `${API_BASE}/stock-market?code=${encodeURIComponent(currentMarketCode)}&days=120&frequency=${encodeURIComponent(frequency)}`,
+        );
+        const payload = await response.json();
+        if (requestToken === marketRequestToken) workbench.renderMarket(payload);
+      } catch (error) {
+        if (requestToken === marketRequestToken) {
+          workbench.renderMarket({ ok: false, error: String(error) });
+        }
+      }
+    }
+
+    async function fetchPartialResults() {
+      if (!currentAnalysisId) return;
+      try {
+        const response = await fetch(`${API_BASE}/analysis/${currentAnalysisId}/partial`);
+        if (!response.ok) return;
+        const payload = await response.json();
+        workbench.updatePartialResults(payload.results || {});
+      } catch (error) {
+        console.debug('Partial analysis result is not available yet:', error);
+      }
+    }
+
+    async function retryFailedAgent(agentKey) {
+      if (!currentAnalysisId) return;
+      try {
+        const response = await fetch(`${API_BASE}/analysis/${currentAnalysisId}/retry/${agentKey}`, {
+          method: 'POST',
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.detail || '该分析项暂时无法重试');
+        }
+        _completionHandled = false;
+        previousProgress = { ...previousProgress, [agentKey]: 'running', summary: 'waiting' };
+        pollAnalysisStatus();
+      } catch (error) {
+        workbench.renderError(error.message || '重试失败，请稍后再试。');
+      }
+    }
+
     // ============ 后台轮询（Web Worker 实现）============
     // 浏览器会对后台标签页的 setTimeout/setInterval 做节流（甚至暂停），
     // 导致切换标签页后前端进度"卡住"。Web Worker 里的定时器不受后台节流，
@@ -3047,12 +3104,20 @@
       if (Date.now() > _pollDeadline) {
         stopBackgroundPolling();
         clearInterval(elapsedInterval);
-        document.getElementById('statusText').textContent = '分析超时，请稍后重试。';
+        workbench.renderError('分析超时，请稍后重试。');
         return;
       }
-      updateAgentCards(status.progress);
+      workbench.updateStatus(status);
+      const requests = window.FinexWorkbench.nextRequests(previousProgress, status);
+      previousProgress = { ...(status.progress || {}) };
 
-      if (status.status === 'completed') {
+      if (status.stock_code && status.stock_code !== currentMarketCode) {
+        currentMarketCode = status.stock_code;
+        loadWorkbenchMarket(currentMarketFrequency);
+      }
+      if (requests.partial) fetchPartialResults();
+
+      if (requests.result) {
         // 已完成且已处理过（弹过通知）：只清理，不再重复获取结果/弹窗，
         // 否则切回前台补轮询会再次触发（无限弹窗）。
         if (_completionHandled) { stopBackgroundPolling(); return; }
@@ -3064,8 +3129,7 @@
             const result = await resultResponse.json();
             displayResults(result);
             clearInterval(elapsedInterval);
-            document.getElementById('statusText').textContent = '已完成';
-            if (Notification.permission === 'granted') {
+            if ('Notification' in window && Notification.permission === 'granted') {
               const name = currentQuery || '股票';
               new Notification('股票分析完成', { body: `${name} 的分析报告已生成` });
             }
@@ -3076,7 +3140,7 @@
       } else if (status.status === 'error') {
         stopBackgroundPolling();
         clearInterval(elapsedInterval);
-        document.getElementById('statusText').textContent = status.error || '分析出错，请稍后重试。';
+        workbench.renderError(status.error || '分析出错，请稍后重试。');
       }
       // status === 'running' → Worker 继续轮询，无需额外处理
     }
@@ -3111,7 +3175,7 @@
                 const res = await fetch(base + '/status/' + __id);
                 const status = await res.json();
                 self.postMessage({ type: 'status', status });
-                if (status.status === 'completed' || status.status === 'error') {
+                if (status.status === 'completed' || status.status === 'degraded' || status.status === 'error') {
                   if (__timer) { clearInterval(__timer); __timer = null; }
                 }
               } catch (err) { /* 瞬时错误，继续重试 */ }
@@ -3185,111 +3249,79 @@
 
     let currentResult = null;
 
+    function escapeReportHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function formatAnalysisMarkdown(value) {
+      const escaped = escapeReportHtml(value).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      return escaped.split(/\n\s*\n/).map((block) => {
+        const text = block.trim();
+        if (!text) return '';
+        const heading = text.match(/^(#{1,4})\s+(.+)$/s);
+        if (heading) {
+          const level = Math.min(4, heading[1].length + 1);
+          return `<h${level}>${heading[2].replace(/\n/g, ' ')}</h${level}>`;
+        }
+        const lines = text.split('\n');
+        if (lines.every((line) => /^[-*]\s+/.test(line))) {
+          return `<ul>${lines.map((line) => `<li>${line.replace(/^[-*]\s+/, '')}</li>`).join('')}</ul>`;
+        }
+        return `<p>${text.replace(/\n/g, '<br>')}</p>`;
+      }).join('');
+    }
+
+    function renderWorkbenchReportContent(result, content, navigation) {
+      const sections = [
+        ['fundamental', '基本面分析', result.fundamental_analysis],
+        ['technical', '技术面分析', result.technical_analysis],
+        ['value', '估值分析', result.value_analysis],
+        ['news', '新闻分析', result.news_analysis],
+        ['summary', '综合研判', result.final_report],
+      ].filter(([, , value]) => value);
+
+      content.innerHTML = sections.map(([id, title, value]) => `
+        <section class="report-analysis-block" id="report-${id}">
+          <h2 class="report-section-title">${title}</h2>
+          <div class="report-text">${formatAnalysisMarkdown(value)}</div>
+        </section>
+      `).join('');
+
+      navigation.replaceChildren(...sections.map(([id, title]) => {
+        const link = document.createElement('a');
+        link.href = `#report-${id}`;
+        link.textContent = title;
+        return link;
+      }));
+
+      if (Array.isArray(result.missing_dimensions) && result.missing_dimensions.length) {
+        const notice = document.createElement('p');
+        notice.className = 'report-degraded-notice';
+        notice.textContent = `部分研究维度暂缺：${result.missing_dimensions.join('、')}。你可以返回协同台重试失败项。`;
+        content.prepend(notice);
+      }
+    }
+
     function displayResults(result) {
       console.log('Analysis result:', result);
       currentResult = result;
-
-      // Update status
-      document.getElementById('statusText').textContent = '分析完成';
-
-      // Show "Go to Report" button
-      showReportButton();
-    }
-
-    function showReportButton() {
-      // Check if button already exists
-      let reportBtn = document.getElementById('goToReportBtn');
-      if (!reportBtn) {
-        reportBtn = document.createElement('button');
-        reportBtn.id = 'goToReportBtn';
-        reportBtn.className = 'report-btn report-btn-primary';
-        reportBtn.style.cssText = 'position: fixed; bottom: 2rem; right: 2rem; opacity: 0; transform: translateY(20px); transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);';
-        reportBtn.innerHTML = '<span>查看报告</span><span>→</span>';
-        reportBtn.onclick = goToReport;
-        document.body.appendChild(reportBtn);
-
-        // Trigger animation
-        setTimeout(() => {
-          reportBtn.style.opacity = '1';
-          reportBtn.style.transform = 'translateY(0)';
-        }, 100);
-      }
+      goToReport();
     }
 
     let pdfPollingTimer = null;
 
     function goToReport() {
       if (!currentResult) return;
-
-      // Remove the button
-      const reportBtn = document.getElementById('goToReportBtn');
-      if (reportBtn) reportBtn.remove();
-
-      // Hide analysis section
-      analysisSection.classList.remove('active');
-
-      // Show report section
-      const reportSection = document.getElementById('reportSection');
-      reportSection.classList.add('active');
-
-      // Update report header
-      document.getElementById('reportTitle').textContent = currentResult.company_name || '分析报告';
-      document.getElementById('reportCode').textContent = currentResult.stock_code || '-';
-      document.getElementById('reportDate').textContent = currentResult.analysis_date || '-';
+      analysisSection.classList.add('active');
+      workbench.renderReport(currentResult);
 
       // Reset PDF button state
       resetPdfButton();
-
-      // Build report content
-      const reportContent = document.getElementById('reportContent');
-      let html = '';
-
-      if (currentResult.fundamental_analysis) {
-        html += `
-          <h2 class="report-section-title">📊 基本面分析</h2>
-          <div class="report-text">${currentResult.fundamental_analysis}</div>
-        `;
-      }
-
-      if (currentResult.technical_analysis) {
-        html += `
-          <h2 class="report-section-title">📈 技术分析</h2>
-          <div class="report-text">${currentResult.technical_analysis}</div>
-        `;
-      }
-
-      if (currentResult.value_analysis) {
-        html += `
-          <h2 class="report-section-title">💰 估值分析</h2>
-          <div class="report-text">${currentResult.value_analysis}</div>
-        `;
-      }
-
-      if (currentResult.news_analysis) {
-        html += `
-          <h2 class="report-section-title">📰 新闻分析</h2>
-          <div class="report-text">${currentResult.news_analysis}</div>
-        `;
-      }
-
-      if (currentResult.final_report) {
-        html += `
-          <h2 class="report-section-title">🤖 智能汇总</h2>
-          <div class="report-text">${currentResult.final_report}</div>
-        `;
-      }
-
-      // Add report path notice
-      if (currentResult.report_path) {
-        html += `
-          <div class="report-path-notice">
-            <div class="report-path-notice-label">📄 报告已保存至本地</div>
-            <div class="report-path-notice-path">${currentResult.report_path}</div>
-          </div>
-        `;
-      }
-
-      reportContent.innerHTML = html;
 
       // Start polling for PDF availability
       if (currentAnalysisId) {
@@ -3300,7 +3332,7 @@
 
       // 等待渲染完成后平滑滚动到报告区域顶部
       requestAnimationFrame(() => {
-        reportSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.getElementById('workbenchReport').scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
 
@@ -3417,15 +3449,13 @@
     // Report page buttons
     document.getElementById('backToHomeBtn').addEventListener('click', () => {
       if (pdfPollingTimer) clearTimeout(pdfPollingTimer);
-      const reportSection = document.getElementById('reportSection');
-      reportSection.classList.remove('active');
+      analysisSection.classList.remove('active');
       goHome();
     });
 
     document.getElementById('newAnalysisBtn').addEventListener('click', () => {
       if (pdfPollingTimer) clearTimeout(pdfPollingTimer);
-      const reportSection = document.getElementById('reportSection');
-      reportSection.classList.remove('active');
+      analysisSection.classList.remove('active');
       goHome();
       stockInput.value = '';
       stockInput.focus();

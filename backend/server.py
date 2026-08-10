@@ -697,6 +697,8 @@ async def get_analysis_status(analysis_id: str):
         "error": session.error,
         "agent_details": session.agent_details,
         "current_task": session.current_task,
+        "company_name": session.company_name,
+        "stock_code": session.initial_data.get("stock_code"),
     }
 
 

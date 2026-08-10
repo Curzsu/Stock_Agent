@@ -36,6 +36,7 @@ class TestAnalysisSessionApi(unittest.TestCase):
             "result_available": True,
             "execution_time_ms": 48000,
         })
+        self.session.initial_data = {"stock_code": "sh.600519"}
         server.analysis_sessions["session1"] = self.session
 
     def tearDown(self):
@@ -50,6 +51,7 @@ class TestAnalysisSessionApi(unittest.TestCase):
             "盈利能力保持稳健。",
         )
         self.assertIn("current_task", payload)
+        self.assertEqual(payload["stock_code"], "sh.600519")
 
     def test_partial_endpoint_returns_only_completed_results(self):
         response = self.client.get("/api/analysis/session1/partial")
