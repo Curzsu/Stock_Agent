@@ -6,10 +6,67 @@ import logging
 from datetime import datetime, timedelta
 
 from mcp.server.fastmcp import FastMCP
-from src.data_source_interface import FinancialDataSource
+from src.data_source_interface import FinancialDataSource, NoDataFoundError
 from src.formatting.markdown_formatter import format_df_to_markdown
 
 logger = logging.getLogger(__name__)
+
+
+def recent_quarters(now: datetime, limit: int = 8):
+    """Return newest-to-oldest calendar quarters, bounded by ``limit``."""
+    if limit < 1:
+        return []
+
+    year = now.year
+    quarter = (now.month - 1) // 3 + 1
+    candidates = []
+    for _ in range(limit):
+        candidates.append((str(year), quarter))
+        quarter -= 1
+        if quarter == 0:
+            year -= 1
+            quarter = 4
+    return candidates
+
+
+def fetch_latest_financial_bundle(data_source, code: str, now=None):
+    """Fetch one internally consistent bundle from the latest available quarter."""
+    effective_now = now or datetime.now()
+    attempted = []
+    for year, quarter in recent_quarters(effective_now):
+        attempted.append(f"{year}Q{quarter}")
+        try:
+            profit_data = data_source.get_profit_data(
+                code=code,
+                year=year,
+                quarter=quarter,
+            )
+        except NoDataFoundError:
+            continue
+
+        bundle = {
+            "profit": profit_data,
+            "growth": data_source.get_growth_data(
+                code=code,
+                year=year,
+                quarter=quarter,
+            ),
+            "balance": data_source.get_balance_data(
+                code=code,
+                year=year,
+                quarter=quarter,
+            ),
+            "dupont": data_source.get_dupont_data(
+                code=code,
+                year=year,
+                quarter=quarter,
+            ),
+        }
+        return year, quarter, bundle
+
+    raise NoDataFoundError(
+        f"No financial report data found for {code} in: {', '.join(attempted)}"
+    )
 
 
 def register_analysis_tools(app: FastMCP, active_data_source: FinancialDataSource):
@@ -44,20 +101,13 @@ def register_analysis_tools(app: FastMCP, active_data_source: FinancialDataSourc
             # 根据分析类型获取不同数据
             if analysis_type in ["fundamental", "comprehensive"]:
                 # 获取最近一个季度财务数据
-                recent_year = datetime.now().strftime("%Y")
-                recent_quarter = (datetime.now().month - 1) // 3 + 1
-                if recent_quarter < 1:  # 处理年初可能出现的边界情况
-                    recent_year = str(int(recent_year) - 1)
-                    recent_quarter = 4
-
-                profit_data = active_data_source.get_profit_data(
-                    code=code, year=recent_year, quarter=recent_quarter)
-                growth_data = active_data_source.get_growth_data(
-                    code=code, year=recent_year, quarter=recent_quarter)
-                balance_data = active_data_source.get_balance_data(
-                    code=code, year=recent_year, quarter=recent_quarter)
-                dupont_data = active_data_source.get_dupont_data(
-                    code=code, year=recent_year, quarter=recent_quarter)
+                recent_year, recent_quarter, financial_bundle = (
+                    fetch_latest_financial_bundle(active_data_source, code)
+                )
+                profit_data = financial_bundle["profit"]
+                growth_data = financial_bundle["growth"]
+                balance_data = financial_bundle["balance"]
+                dupont_data = financial_bundle["dupont"]
 
             if analysis_type in ["technical", "comprehensive"]:
                 # 获取历史价格
