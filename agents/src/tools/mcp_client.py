@@ -30,6 +30,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from src.utils.logging_config import setup_logger, SUCCESS_ICON, ERROR_ICON, WAIT_ICON
 from src.tools.mcp_config import SERVER_CONFIGS
 import asyncio
+import os
 import threading
 
 logger = setup_logger(__name__)
@@ -49,6 +50,48 @@ _mcp_init_lock_loop = None
 _mcp_init_lock_mutex = threading.Lock()
 # 保护「关闭」过程的线程锁，避免 close 与 get_mcp_tools 并发交错。
 _mcp_close_mutex = threading.Lock()
+
+# Baostock sessions invalidate each other when separate MCP subprocesses log in
+# concurrently.  All LangChain MCP tools share this event-loop lock so the
+# subprocess lifecycle (login -> query -> logout) stays atomic.
+_mcp_tool_lock = None
+_mcp_tool_lock_loop = None
+_mcp_tool_lock_mutex = threading.Lock()
+MCP_TOOL_TIMEOUT_SECONDS = float(os.getenv("MCP_TOOL_TIMEOUT_SECONDS", "45"))
+
+
+def _get_mcp_tool_lock():
+    global _mcp_tool_lock, _mcp_tool_lock_loop
+
+    current_loop = asyncio.get_running_loop()
+    with _mcp_tool_lock_mutex:
+        if _mcp_tool_lock is None or _mcp_tool_lock_loop is not current_loop:
+            _mcp_tool_lock = asyncio.Lock()
+            _mcp_tool_lock_loop = current_loop
+    return _mcp_tool_lock
+
+
+def serialize_mcp_tools(tools, timeout_seconds=MCP_TOOL_TIMEOUT_SECONDS):
+    """Return tool copies whose async calls run one at a time with a deadline."""
+    protected_tools = []
+    for tool in tools:
+        original_coroutine = tool.coroutine
+
+        async def guarded_coroutine(
+            *args,
+            _original_coroutine=original_coroutine,
+            **kwargs,
+        ):
+            async with _get_mcp_tool_lock():
+                return await asyncio.wait_for(
+                    _original_coroutine(*args, **kwargs),
+                    timeout=timeout_seconds,
+                )
+
+        protected_tools.append(
+            tool.model_copy(update={"coroutine": guarded_coroutine})
+        )
+    return protected_tools
 
 
 def print_tool_details(tools):
@@ -137,7 +180,7 @@ async def get_mcp_tools():
                 return []
 
             # 成功加载：缓存工具列表与 client 引用
-            _mcp_tools = loaded_tools
+            _mcp_tools = serialize_mcp_tools(loaded_tools)
             _mcp_client_instance = client
             logger.info(
                 f"{SUCCESS_ICON} Successfully loaded {len(_mcp_tools)} tools from 'a_share_mcp_v2'.")
@@ -167,6 +210,7 @@ async def close_mcp_client_sessions():
     是原子操作，避免与 `get_mcp_tools` 并发时出现部分清空的不一致状态。
     """
     global _mcp_client_instance, _mcp_tools, _mcp_init_lock, _mcp_init_lock_loop
+    global _mcp_tool_lock, _mcp_tool_lock_loop
 
     with _mcp_close_mutex:
         if _mcp_client_instance is None and _mcp_tools is None:
@@ -191,6 +235,8 @@ async def close_mcp_client_sessions():
         _mcp_tools = None
         _mcp_init_lock = None
         _mcp_init_lock_loop = None
+        _mcp_tool_lock = None
+        _mcp_tool_lock_loop = None
 
 
 # 测试此模块的示例（可选，用于直接执行）
