@@ -78,6 +78,10 @@ htmlcov/
 .superpowers/
 .mcp_cache/
 
+# Local AI skills and planning documents
+/.zcode/skills/
+/docs/superpowers/
+
 # ========================================
 # Node.js (if frontend uses npm/yarn)
 # ========================================
