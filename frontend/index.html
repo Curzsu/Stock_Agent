@@ -2728,12 +2728,12 @@
           card.innerHTML = `
             <div class="history-card-header">
               <div>
-                <div class="history-card-title">${item.company_name || '未知'}</div>
-                <div class="history-card-code">${item.stock_code || '-'}</div>
+                <div class="history-card-title">${escapeReportHtml(item.company_name || '未知')}</div>
+                <div class="history-card-code">${escapeReportHtml(item.stock_code || '-')}</div>
               </div>
               <div class="history-card-date">${statusLabel}</div>
             </div>
-            <div class="history-card-excerpt">${item.analysis_date ? item.analysis_date.slice(0, 10) : '-'}</div>
+            <div class="history-card-excerpt">${escapeReportHtml(item.analysis_date ? item.analysis_date.slice(0, 10) : '-')}</div>
           `;
 
           card.addEventListener('click', () => {
@@ -2947,7 +2947,7 @@
         if (data.ok) {
           showConfigToast(data.message || '连通正常');
         } else {
-          showConfigToast(data.error || '连通失败', true);
+          showConfigToast(data.detail || data.error || '连通失败', true);
         }
       } catch (err) {
         console.error('Failed to test config:', err);

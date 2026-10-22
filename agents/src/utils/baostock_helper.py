@@ -81,6 +81,27 @@ def ensure_logged_in():
         _login_lock.release()
 
 
+class _BufferedResult:
+    """BaoStock-compatible cursor backed entirely by local rows."""
+
+    def __init__(self, result, rows):
+        self.error_code = result.error_code
+        self.error_msg = result.error_msg
+        self.fields = list(result.fields)
+        self._rows = rows
+        self._index = 0
+
+    def next(self):
+        return self._index < len(self._rows)
+
+    def get_row_data(self):
+        if not self.next():
+            return []
+        row = self._rows[self._index]
+        self._index += 1
+        return row
+
+
 def safe_query(query_fn, *args, **kwargs):
     """在互斥锁保护下执行一次 baostock 查询。
 
@@ -89,13 +110,20 @@ def safe_query(query_fn, *args, **kwargs):
         *args, **kwargs: 传给 query_fn 的参数。
 
     Returns:
-        query_fn 的返回值（通常是 baostock 的 ResultData）。
+        内存结果游标，保留 error_code/error_msg/fields/next/get_row_data 接口。
 
-    确保查询期间没有其他线程干扰全局连接。
+    ResultData.next() 可能继续请求下一页，因此必须在锁内读完所有分页。
     """
     ensure_logged_in()
     with _query_lock:
-        return _with_socket_timeout(query_fn, *args, **kwargs)
+        def fetch_all():
+            result = query_fn(*args, **kwargs)
+            rows = []
+            while result.error_code == "0" and result.next():
+                rows.append(list(result.get_row_data()))
+            return _BufferedResult(result, rows)
+
+        return _with_socket_timeout(fetch_all)
 
 
 def shutdown():

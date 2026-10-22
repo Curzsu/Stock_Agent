@@ -1,4 +1,5 @@
 import os
+import asyncio
 import sys
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -180,6 +181,43 @@ class TestAnalysisSessionApi(unittest.TestCase):
         self.assertEqual(self.session.partial_results["news_analysis"], "新闻重试结果")
         self.assertEqual(len(summary_inputs), 1)
         self.assertEqual(summary_inputs[0]["news_analysis"], "新闻重试结果")
+
+    def test_summary_failure_marks_initial_workflow_as_error(self):
+        async def analyst(state):
+            return {"data": {"fundamental_analysis": "available fragment"}}
+
+        async def failed_summary(state):
+            return {"data": {"summary_error": "model unavailable", "final_report": "error fallback"}}
+
+        with patch.object(server, "verify_stock_code_exists", return_value=(True, "贵州茅台")), \
+             patch.object(server, "fundamental_agent", analyst), \
+             patch.object(server, "technical_agent", analyst), \
+             patch.object(server, "value_agent", analyst), \
+             patch.object(server, "news_agent", analyst), \
+             patch.object(server, "summary_agent", failed_summary):
+            asyncio.run(server.run_analysis_workflow("session1", "600519"))
+
+        self.assertEqual(self.session.status, "error")
+        self.assertIn("model unavailable", self.session.error)
+        self.assertEqual(self.session.agent_details["summary"]["status"], "failed")
+        self.assertEqual(self.session.partial_results["fundamental_analysis"], "available fragment")
+        self.assertIsNotNone(self.session.end_time)
+        self.assertIsNone(self.session.current_task)
+
+    def test_summary_failure_during_retry_is_not_completed(self):
+        async def recovered_news(state):
+            return {"data": {"news_analysis": "recovered news"}}
+
+        async def failed_summary(state):
+            return {"data": {"summary_error": "model unavailable"}}
+
+        asyncio.run(server.retry_agent_and_summary(
+            "session1", "news", selected_agent=recovered_news, summarizer=failed_summary,
+        ))
+
+        self.assertEqual(self.session.status, "error")
+        self.assertIn("model unavailable", self.session.error)
+        self.assertEqual(self.session.partial_results["news_analysis"], "recovered news")
 
 
 if __name__ == "__main__":
