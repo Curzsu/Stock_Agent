@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const {
   derivePhase,
   normalizeAgentDetails,
@@ -87,6 +88,30 @@ test('index declares an inline favicon to avoid a noisy 404', () => {
 
 test('workbench exposes a DOM controller factory', () => {
   assert.equal(typeof createController, 'function');
+});
+
+test('history treats untrusted names, codes and dates as text', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const functionSource = html.slice(html.indexOf('    async function loadHistory()'), html.indexOf('    // 恢复正在进行的分析视图'));
+  const cards = [];
+  const context = vm.createContext({
+    API_BASE: '/api', console, window: {},
+    document: {
+      getElementById: (id) => id === 'historyGrid' ? { appendChild: (card) => cards.push(card) } : {},
+      createElement: () => ({ style: {}, addEventListener() {} }),
+    },
+    fetch: async () => ({ json: async () => ({ history: [{
+      company_name: '<img src=x onerror=alert(1)>', stock_code: '<svg/onload=alert(1)>',
+      analysis_date: '<img src=x', status: 'error', analysis_id: 'probe',
+    }] }) }),
+  });
+  const escapeStart = html.indexOf('    function escapeReportHtml(value)');
+  vm.runInContext(html.slice(escapeStart, html.indexOf('    function formatAnalysisMarkdown', escapeStart)), context);
+  vm.runInContext(functionSource, context);
+  await context.loadHistory();
+  assert.equal(cards.length, 1);
+  assert.doesNotMatch(cards[0].innerHTML, /<img|<svg/);
+  assert.match(cards[0].innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
 });
 
 test('nextRequests fetches partials only when a dimension newly completes', () => {

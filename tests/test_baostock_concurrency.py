@@ -92,15 +92,13 @@ class TestBaostockHelperConcurrency(unittest.TestCase):
     """验证 baostock helper 在并发下不互相干扰。"""
 
     def _import_helper(self, fake_bs):
-        """用 fake baostock 导入 helper 模块（强制重载）。"""
-        with patch.dict(sys.modules, {"baostock": fake_bs}):
-            # 清除缓存确保用 fake 重新导入
-            for mod in ("src.utils.baostock_helper", "backend.server"):
-                sys.modules.pop(mod, None)
-            import src.utils.baostock_helper as helper
-            # 强制让 helper 引用的 bs 是 fake
-            helper.bs = fake_bs
-            return helper
+        """隔离数据源和登录状态，保持 server 与 helper 引用同一模块。"""
+        import src.utils.baostock_helper as helper
+        for name, value in (("bs", fake_bs), ("_logged_in", False)):
+            patcher = patch.object(helper, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return helper
 
     def test_concurrent_safe_query_does_not_interfere(self):
         """
@@ -160,6 +158,53 @@ class TestBaostockHelperConcurrency(unittest.TestCase):
         self.assertLessEqual(login_count_after - login_count_before, 1,
                              "ensure_logged_in 应是单例，不应重复 login")
 
+    def test_result_pages_are_consumed_before_releasing_query_lock(self):
+        fake_bs = _install_fake_baostock()
+        helper = self._import_helper(fake_bs)
+        lock_states = []
+
+        class PagedResult:
+            error_code = "0"
+            error_msg = "ok"
+            fields = ["code", "code_name"]
+
+            def __init__(self):
+                self.index = 0
+
+            def next(self):
+                lock_states.append(helper._query_lock.locked())
+                return self.index < 2
+
+            def get_row_data(self):
+                self.index += 1
+                return [str(self.index), "stock"]
+
+        result = helper.safe_query(PagedResult)
+        self.assertEqual(lock_states, [True, True, True])
+        rows = []
+        while result.next():
+            rows.append(result.get_row_data())
+        self.assertEqual(rows, [["1", "stock"], ["2", "stock"]])
+        self.assertEqual(lock_states, [True, True, True], "reading buffered rows must not access the connection")
+
+    def test_pagination_error_is_preserved_for_callers(self):
+        fake_bs = _install_fake_baostock()
+        helper = self._import_helper(fake_bs)
+
+        class FailedPage:
+            error_code = "0"
+            error_msg = "ok"
+            fields = ["code"]
+
+            def next(self):
+                self.error_code = "10001"
+                self.error_msg = "connection lost"
+                return False
+
+        result = helper.safe_query(FailedPage)
+        self.assertEqual(result.error_code, "10001")
+        self.assertEqual(result.error_msg, "connection lost")
+
     def _count_logins(self, fake_bs):
         """计数 login 被调用的次数。"""
         # 用 mock 包装 login 计数
@@ -188,23 +233,21 @@ class TestServerFunctionsConcurrency(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """整个类只导入一次 server，用 fake baostock。"""
-        fake_bs = _install_fake_baostock()
-        # 重置 helper 单例状态
-        import src.utils.baostock_helper as bh
-        bh._logged_in = False
-        bh.bs = fake_bs
-        with patch.dict(sys.modules, {"baostock": fake_bs}):
-            import backend.server as srv
-            srv.bs = fake_bs
-            bh.bs = fake_bs
-            bh._logged_in = False
+        import backend.server as srv
         cls._srv = srv
-        cls._shared_fake_bs = fake_bs
+        cls._shared_fake_bs = _install_fake_baostock()
 
     def setUp(self):
         """每个测试前重置 helper 单例登录状态，确保测试独立。"""
         import src.utils.baostock_helper as bh
-        bh._logged_in = False
+        for target, name, value in (
+            (bh, "_logged_in", False),
+            (bh, "bs", self._shared_fake_bs),
+            (self._srv, "bs", self._shared_fake_bs),
+        ):
+            patcher = patch.object(target, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         # fake_bs 状态重置
         self._shared_fake_bs._state["_connected"] = False
 

@@ -29,7 +29,7 @@ class TestGetApiConfig(unittest.TestCase):
         from backend import server
         from fastapi.testclient import TestClient
         self.server = server
-        self.client = TestClient(server.app)
+        self.client = TestClient(server.app, base_url="http://localhost", client=("127.0.0.1", 50000))
 
     def _set_env(self, **kwargs):
         """设置/清理三个配置变量。传 value=None 表示删除。"""
@@ -89,7 +89,7 @@ class TestPostApiConfig(unittest.TestCase):
         from backend import server
         from fastapi.testclient import TestClient
         self.server = server
-        self.client = TestClient(server.app)
+        self.client = TestClient(server.app, base_url="http://localhost", client=("127.0.0.1", 50000))
         # 用临时 .env,绝不污染真实 agents/.env
         self._tmpdir = tempfile.TemporaryDirectory()
         self._tmp_env = os.path.join(self._tmpdir.name, ".env")
@@ -139,8 +139,9 @@ class TestPostApiConfig(unittest.TestCase):
 
     def test_post_config_partial_update(self):
         """只传 base_url 时,api_key 和 model 保留原值。"""
-        # 先设 os.environ 为已知值
+        # 同一服务的部分更新保留已有密钥。
         os.environ["OPENAI_COMPATIBLE_API_KEY"] = "sk-keep-this"
+        os.environ["OPENAI_COMPATIBLE_BASE_URL"] = "https://only-base.example.com/v1"
         os.environ["OPENAI_COMPATIBLE_MODEL"] = "keep-model"
         resp = self.client.post("/api/config", json={
             "base_url": "https://only-base.example.com/v1",
@@ -180,7 +181,7 @@ class TestTestApiConfigConnectivity(unittest.TestCase):
         from backend import server
         from fastapi.testclient import TestClient
         self.server = server
-        self.client = TestClient(server.app)
+        self.client = TestClient(server.app, base_url="http://localhost", client=("127.0.0.1", 50000))
 
     def tearDown(self):
         for k in ("OPENAI_COMPATIBLE_API_KEY", "OPENAI_COMPATIBLE_BASE_URL",
@@ -234,6 +235,49 @@ class TestTestApiConfigConnectivity(unittest.TestCase):
         self.assertFalse(data["ok"])
         self.assertIn("error", data)
         self.assertIn("401", data["error"])
+
+
+class TestConfigAccess(unittest.TestCase):
+    def test_config_routes_reject_remote_clients_and_foreign_origins(self):
+        from backend import server
+        from fastapi.testclient import TestClient
+
+        for client_host, base_url, headers in [
+            ("192.0.2.1", "http://localhost", {}),
+            ("127.0.0.1", "http://localhost", {"Origin": "https://untrusted.example"}),
+            ("127.0.0.1", "http://untrusted.example", {}),
+        ]:
+            client = TestClient(server.app, base_url=base_url, client=(client_host, 50000))
+            for method, path in [("GET", "/api/config"), ("POST", "/api/config"), ("POST", "/api/config/test")]:
+                with self.subTest(client_host=client_host, base_url=base_url, path=path, method=method):
+                    with patch.object(server, "update_env_file") as persist, patch.object(server, "ChatOpenAI") as llm:
+                        response = client.request(method, path, headers=headers, json={"model": "new-model"})
+                    self.assertEqual(response.status_code, 403)
+                    persist.assert_not_called()
+                    llm.assert_not_called()
+
+    def test_changing_destination_requires_explicit_key_before_save_or_test(self):
+        from backend import server
+        from fastapi.testclient import TestClient
+
+        client = TestClient(server.app, base_url="http://localhost", client=("127.0.0.1", 50000))
+        settings = {"OPENAI_COMPATIBLE_API_KEY": "sk-saved", "OPENAI_COMPATIBLE_BASE_URL": "https://saved.example/v1", "OPENAI_COMPATIBLE_MODEL": "model"}
+        with patch.dict(os.environ, settings):
+            for path in ("/api/config", "/api/config/test"):
+                with self.subTest(path=path):
+                    with patch.object(server, "update_env_file") as persist, patch.object(server, "ChatOpenAI") as llm:
+                        response = client.post(path, json={"base_url": "https://untrusted.example/v1"})
+                    self.assertEqual(response.status_code, 422)
+                    self.assertEqual(os.environ["OPENAI_COMPATIBLE_BASE_URL"], "https://saved.example/v1")
+                    persist.assert_not_called()
+                    llm.assert_not_called()
+
+    def test_same_origin_local_browser_can_read_config(self):
+        from backend import server
+        from fastapi.testclient import TestClient
+
+        client = TestClient(server.app, base_url="http://localhost", client=("127.0.0.1", 50000))
+        self.assertEqual(client.get("/api/config", headers={"Origin": "http://localhost"}).status_code, 200)
 
 
 if __name__ == "__main__":

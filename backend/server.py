@@ -14,6 +14,7 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 import re
+from ipaddress import ip_address
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from pathlib import Path
@@ -24,7 +25,7 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "agents"))
 
 import asyncio
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -254,6 +255,22 @@ def rebuild_session_result(session, data: Optional[Dict[str, Any]] = None) -> No
     }
 
 
+def finish_analysis_session(session) -> None:
+    """A failed synthesis is an error even when all four dimensions succeeded."""
+    summary = session.agent_details["summary"]
+    if summary["status"] == "failed":
+        session.status = "error"
+        session.error = f"汇总报告生成失败，请重新发起分析：{summary['error']}"
+    else:
+        session.status = "degraded" if any(
+            session.agent_details[key]["status"] == "failed"
+            for key in ("fundamental", "technical", "value", "news")
+        ) else "completed"
+        session.error = None
+    session.end_time = datetime.now().isoformat()
+    session.current_task = None
+
+
 RETRYABLE_AGENTS = {
     "fundamental": fundamental_agent,
     "technical": technical_agent,
@@ -296,12 +313,7 @@ async def retry_agent_and_summary(
         summary_result = await summary_fn(summary_state)
         record_agent_result(session, "summary", summary_result)
         rebuild_session_result(session, (summary_result or {}).get("data", {}))
-        session.status = "degraded" if any(
-            session.agent_details[key]["status"] == "failed"
-            for key in RETRYABLE_AGENTS
-        ) else "completed"
-        session.end_time = datetime.now().isoformat()
-        session.current_task = None
+        finish_analysis_session(session)
     except Exception as exc:
         session.agent_details[agent_key].update({
             "status": "failed",
@@ -355,6 +367,33 @@ class ApiConfigRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     model: Optional[str] = None
+
+
+def require_local_config_access(request: Request) -> None:
+    """Configuration belongs to the local operator, including browser requests."""
+    try:
+        local_client = request.client is not None and ip_address(request.client.host).is_loopback
+    except ValueError:
+        local_client = False
+    origin = request.headers.get("origin")
+    if (
+        not local_client
+        or request.url.hostname not in {"localhost", "127.0.0.1", "::1"}
+        or (origin is not None and origin != str(request.base_url).rstrip("/"))
+    ):
+        raise HTTPException(status_code=403, detail="API 配置仅允许通过本机页面访问")
+
+
+def validate_config_destination(config: ApiConfigRequest) -> None:
+    """Never carry a saved credential to a newly supplied service URL."""
+    saved_url = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").rstrip("/")
+    if (
+        config.base_url is not None
+        and config.base_url.rstrip("/") != saved_url
+        and os.getenv("OPENAI_COMPATIBLE_API_KEY")
+        and not config.api_key
+    ):
+        raise HTTPException(status_code=422, detail="更换 Base URL 时请重新输入 API Key")
 
 
 def mask_api_key(key: str) -> str:
@@ -601,19 +640,11 @@ async def run_analysis_workflow(analysis_id: str, query: str):
             timeout=WORKFLOW_TIMEOUT_SECONDS
         )
 
-        # Update status
-        has_failed_dimensions = any(
-            session.agent_details[key]["status"] == "failed"
-            for key in ("fundamental", "technical", "value", "news")
-        )
-        session.status = "degraded" if has_failed_dimensions else "completed"
-        session.end_time = datetime.now().isoformat()
-        session.current_task = None
-
         # Extract results
         if final_state and final_state.get("data"):
             data = final_state["data"]
             rebuild_session_result(session, data)
+        finish_analysis_session(session)
 
     except asyncio.TimeoutError:
         session.status = "error"
@@ -805,7 +836,7 @@ async def get_analysis_history():
 
     return {"history": history}
 
-@app.get("/api/config")
+@app.get("/api/config", dependencies=[Depends(require_local_config_access)])
 async def get_api_config():
     """返回当前 API 配置(api_key 脱敏显示)。"""
     return {
@@ -821,12 +852,13 @@ _CONFIG_ENV_KEYS = (
     "OPENAI_COMPATIBLE_MODEL",
 )
 
-@app.post("/api/config")
+@app.post("/api/config", dependencies=[Depends(require_local_config_access)])
 async def update_api_config(config: ApiConfigRequest):
     """更新 API 配置:同时写 os.environ(立即生效)和 .env(持久化)。
 
     未传的字段(None)保留原值,只更新显式传入的字段。
     """
+    validate_config_destination(config)
     # 收集需要更新的项(非 None)
     updates = {}
     if config.api_key is not None:
@@ -864,7 +896,7 @@ async def update_api_config(config: ApiConfigRequest):
         "model": os.getenv("OPENAI_COMPATIBLE_MODEL", ""),
     }
 
-@app.post("/api/config/test")
+@app.post("/api/config/test", dependencies=[Depends(require_local_config_access)])
 async def test_api_config_connectivity(config: Optional[ApiConfigRequest] = None):
     """测试 API 配置的连通性。
 
@@ -874,6 +906,8 @@ async def test_api_config_connectivity(config: Optional[ApiConfigRequest] = None
 
     返回 {ok: bool, message|error: str}。
     """
+    if config is not None:
+        validate_config_destination(config)
     api_key = config.api_key if config and config.api_key else os.getenv("OPENAI_COMPATIBLE_API_KEY")
     base_url = config.base_url if config and config.base_url else os.getenv("OPENAI_COMPATIBLE_BASE_URL")
     model_name = config.model if config and config.model else os.getenv("OPENAI_COMPATIBLE_MODEL")
