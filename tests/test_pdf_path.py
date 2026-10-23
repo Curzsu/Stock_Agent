@@ -8,6 +8,11 @@ reports/md/xxx.md -> reports/pdf/xxx.pdf，否则与 MD 同目录同名换 .pdf�
 import unittest
 import os
 import sys
+import tempfile
+import threading
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -35,6 +40,34 @@ class TestDerivePdfPath(unittest.TestCase):
         result = derive_pdf_path(r"E:\proj\reports\md\report.md")
         # 用 os.path.normpath 归一化后比较
         self.assertTrue(result.endswith(os.path.join("pdf", "report.pdf")))
+
+    def test_parallel_pdf_rendering_keeps_each_reports_content(self):
+        from src.utils import pdf_converter
+
+        barrier = threading.Barrier(2)
+
+        class FakeHTML:
+            def __init__(self, filename=None, string=None, base_url=None):
+                barrier.wait(timeout=5)
+                self.content = string if string is not None else Path(filename).read_text(encoding="utf-8")
+
+            def write_pdf(self, pdf_path):
+                barrier.wait(timeout=5)
+                Path(pdf_path).write_text(self.content, encoding="utf-8")
+
+        with tempfile.TemporaryDirectory(dir=PROJECT_ROOT) as directory:
+            def render(name):
+                output = Path(directory) / f"{name}.pdf"
+                try:
+                    pdf_converter._render_with_weasyprint(f"<p>{name}</p>", str(output), directory)
+                    return output.read_text(encoding="utf-8")
+                except Exception as exc:
+                    return f"render failed: {exc}"
+
+            with patch.object(pdf_converter, "WeasyHTML", FakeHTML, create=True), ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(render, ["first", "second"]))
+            self.assertEqual(results, ["<p>first</p>", "<p>second</p>"])
+            self.assertEqual(list(Path(directory).glob("*.html")), [])
 
 
 if __name__ == "__main__":

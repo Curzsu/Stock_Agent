@@ -289,6 +289,7 @@ async def retry_agent_and_summary(
     session = analysis_sessions[analysis_id]
     agent_fn = selected_agent or RETRYABLE_AGENTS[agent_key]
     summary_fn = summarizer or summary_agent
+    active_agent = agent_key
     try:
         state = AgentState(
             messages=[],
@@ -300,8 +301,7 @@ async def retry_agent_and_summary(
         agent_result = await agent_fn(state)
         record_agent_result(session, agent_key, agent_result)
         if session.agent_details[agent_key]["status"] == "failed":
-            session.status = "degraded"
-            session.current_task = None
+            finish_analysis_session(session)
             return
 
         summary_state = AgentState(
@@ -309,20 +309,16 @@ async def retry_agent_and_summary(
             data={**session.initial_data, **session.partial_results},
             metadata={"analysis_id": analysis_id, "retry": agent_key},
         )
+        active_agent = "summary"
         mark_agent_status(session, "summary", "running")
         summary_result = await summary_fn(summary_state)
         record_agent_result(session, "summary", summary_result)
         rebuild_session_result(session, (summary_result or {}).get("data", {}))
         finish_analysis_session(session)
     except Exception as exc:
-        session.agent_details[agent_key].update({
-            "status": "failed",
-            "error": str(exc),
-            "completed_at": datetime.now().isoformat(),
-        })
-        session.progress[agent_key] = "failed"
-        session.status = "degraded"
-        session.current_task = None
+        error_key = AGENT_RESULT_KEYS[active_agent][1]
+        record_agent_result(session, active_agent, {"data": {error_key: str(exc) or type(exc).__name__}})
+        finish_analysis_session(session)
 
 class AnalyzeRequest(BaseModel):
     """Request model for analysis endpoint"""

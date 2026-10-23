@@ -208,3 +208,68 @@ test('opening a degraded report restores its agent lifecycle states', () => {
   assert.match(functionSource, /workbench\.updateStatus\(statusData\)/);
   assert.match(functionSource, /hasRunningAgents\(statusData\).*pollAnalysisStatus\(\)/s);
 });
+
+test('PDF pending response keeps polling until the file is ready', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const start = html.indexOf('    async function pollPdfAvailability()');
+  const outcomes = [];
+  const scheduled = [];
+  const responses = [
+    { ok: false, json: async () => ({ detail: { status: 'pending' } }) },
+    { ok: true },
+  ];
+  const context = vm.createContext({
+    API_BASE: '/api', currentAnalysisId: 'probe', pdfPollingTimer: null,
+    fetch: async () => responses.shift(), clearTimeout() {},
+    setTimeout: (fn, ms) => { scheduled.push({ fn, ms }); return 1; },
+    enablePdfButton: () => outcomes.push('ready'),
+    pdfGenerationFailed: () => outcomes.push('failed'),
+  });
+  vm.runInContext(html.slice(start, html.indexOf('    // PDF download button', start)), context);
+  await context.pollPdfAvailability();
+  assert.deepEqual(outcomes, []);
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].ms, 3000);
+  await scheduled[0].fn();
+  assert.deepEqual(outcomes, ['ready']);
+});
+
+function pollingHarness(deadline, completionHandled = false) {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const start = html.indexOf('    function handlePollStatus(status)');
+  const errors = [];
+  const rendered = [];
+  const context = vm.createContext({
+    _pollDeadline: deadline, _completionHandled: completionHandled,
+    previousProgress: {}, currentMarketCode: null, elapsedInterval: null,
+    currentAnalysisId: 'probe', currentQuery: 'stock', API_BASE: '/api', console,
+    window: { FinexWorkbench: require('../../frontend/workbench.js') },
+    workbench: { updateStatus() {}, renderError: (message) => errors.push(message) },
+    stopBackgroundPolling() {}, clearInterval() {}, fetchPartialResults() {},
+    fetch: async () => ({ json: async () => ({ final_report: 'report' }) }),
+    displayResults: (result) => rendered.push(result),
+  });
+  vm.runInContext(html.slice(start, html.indexOf('    // 立即补一次轮询', start)), context);
+  return { context, errors, rendered };
+}
+
+test('refreshing an already completed report does not report a timeout', () => {
+  const { context, errors } = pollingHarness(0, true);
+  context.handlePollStatus({ status: 'completed', progress: {} });
+  assert.deepEqual(errors, []);
+});
+
+test('a terminal status received after the polling deadline still shows its result', async () => {
+  const { context, errors, rendered } = pollingHarness(1);
+  context.handlePollStatus({ status: 'completed', progress: {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(errors, []);
+  assert.equal(rendered[0].final_report, 'report');
+});
+
+test('an active analysis still times out after its polling deadline', () => {
+  const { context, errors } = pollingHarness(1);
+  context.handlePollStatus({ status: 'running', progress: { news: 'running' } });
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /超时/);
+});
