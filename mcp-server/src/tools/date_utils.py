@@ -40,14 +40,15 @@ def register_date_utils_tools(app: FastMCP, active_data_source: FinancialDataSou
         获取最近的交易日期。如果当天是交易日，则返回当天日期；否则返回最近的交易日。
 
         Returns:
-            最近的交易日期，格式为'YYYY-MM-DD'。
+            最近的交易日期，格式为'YYYY-MM-DD'；日历不可用时返回 Error 信息。
         """
         logger.info("Tool 'get_latest_trading_date' called")
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            # 获取当前日期前后一周的交易日历
-            start_date = (datetime.now().replace(day=1)).strftime("%Y-%m-%d")
-            end_date = (datetime.now().replace(day=28)).strftime("%Y-%m-%d")
+            now = datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            # 覆盖月末、跨年及月初长假，截止到今天。
+            start_date = (now - timedelta(days=60)).strftime("%Y-%m-%d")
+            end_date = today
 
             df = active_data_source.get_trade_dates(
                 start_date=start_date, end_date=end_date)
@@ -66,14 +67,11 @@ def register_date_utils_tools(app: FastMCP, active_data_source: FinancialDataSou
                 logger.info(
                     f"Latest trading date found: {latest_trading_date}")
                 return latest_trading_date
-            else:
-                logger.warning(
-                    "No trading dates found before today, returning today's date")
-                return today
+            raise ValueError("No trading dates found in the calendar")
 
         except Exception as e:
             logger.exception(f"Error determining latest trading date: {e}")
-            return datetime.now().strftime("%Y-%m-%d")
+            return f"Error: Could not determine the latest trading date: {e}"
 
     @app.tool()
     def get_market_analysis_timeframe(period: str = "recent") -> str:

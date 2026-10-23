@@ -3118,8 +3118,11 @@
     // 处理一次轮询返回的状态（Worker 消息 / 前台补轮询共用）
     function handlePollStatus(status) {
       if (!status) return;
+      const isTerminal = status.status === 'error'
+        || (['completed', 'degraded'].includes(status.status)
+          && !window.FinexWorkbench.hasRunningAgents(status));
       // 前端兜底：超过 30 分钟仍未进入终态则停止并提示，避免无限转圈
-      if (Date.now() > _pollDeadline) {
+      if (!isTerminal && _pollDeadline > 0 && Date.now() > _pollDeadline) {
         stopBackgroundPolling();
         clearInterval(elapsedInterval);
         workbench.renderError('分析超时，请稍后重试。');
@@ -3407,7 +3410,7 @@
         }
 
         const data = await res.json();
-        const status = (data && data.status) || '';
+        const status = data?.detail?.status || data?.status || '';
 
         if (status === 'pending') {
           // Still generating, poll again in 3 seconds

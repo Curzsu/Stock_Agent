@@ -250,17 +250,9 @@ def _inject_fonts_to_xhtml2pdf():
 
 def _render_with_weasyprint(html_content: str, pdf_path: str, temp_dir: str) -> bool:
     """Render HTML to PDF using WeasyPrint (higher quality, needs system deps)."""
-    import tempfile
-    temp_html = os.path.join(temp_dir, "_weasy_temp.html")
-    try:
-        with open(temp_html, "w", encoding="utf-8") as f:
-            f.write(html_content)
-        html_doc = WeasyHTML(filename=temp_html)
-        html_doc.write_pdf(pdf_path)
-        return True
-    finally:
-        if os.path.exists(temp_html):
-            os.remove(temp_html)
+    html_doc = WeasyHTML(string=html_content, base_url=temp_dir)
+    html_doc.write_pdf(pdf_path)
+    return True
 
 
 def derive_pdf_path(md_path: str) -> str:

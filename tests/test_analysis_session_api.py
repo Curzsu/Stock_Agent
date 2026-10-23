@@ -219,6 +219,39 @@ class TestAnalysisSessionApi(unittest.TestCase):
         self.assertIn("model unavailable", self.session.error)
         self.assertEqual(self.session.partial_results["news_analysis"], "recovered news")
 
+    def test_retry_exception_finishes_the_actual_failed_stage(self):
+        async def recovered_news(state):
+            return {"data": {"news_analysis": "recovered news"}}
+
+        async def crash(state):
+            raise RuntimeError(error_message)
+
+        for failed_stage, error_message in (("news", "stage crashed"), ("summary", "stage crashed"), ("summary", "")):
+            with self.subTest(failed_stage=failed_stage, error_message=error_message):
+                self.session.agent_details = server.new_agent_details()
+                for key, detail in self.session.agent_details.items():
+                    detail["status"] = "completed"
+                    self.session.progress[key] = "completed"
+                self.session.agent_details["news"]["status"] = "failed"
+                self.session.status = "degraded"
+                self.session.end_time = None
+                asyncio.run(server.retry_agent_and_summary(
+                    "session1", "news",
+                    selected_agent=crash if failed_stage == "news" else recovered_news,
+                    summarizer=crash,
+                ))
+                self.assertFalse(any(d["status"] == "running" for d in self.session.agent_details.values()))
+                self.assertEqual(self.session.agent_details[failed_stage]["status"], "failed")
+                self.assertEqual(self.session.progress[failed_stage], "failed")
+                self.assertIn(error_message or "RuntimeError", self.session.agent_details[failed_stage]["error"])
+                self.assertIsNotNone(self.session.end_time)
+                self.assertIsNone(self.session.current_task)
+                if failed_stage == "summary":
+                    self.assertEqual(self.session.agent_details["news"]["status"], "completed")
+                    self.assertEqual(self.session.status, "error")
+                else:
+                    self.assertEqual(self.session.status, "degraded")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
