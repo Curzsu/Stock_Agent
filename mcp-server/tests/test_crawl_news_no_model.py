@@ -41,10 +41,23 @@ _FAKE_BAIDU_HTML = """
 </div>
 </body></html>
 """
+_ARTICLE_TEXT = "这是新闻正文的固定测试内容，用来验证爬虫真正解析了文章段落，同时不会向任何新闻网站发起真实请求。"
 
 
 class TestCrawlNewsNoModelDependency(unittest.TestCase):
     """验证 crawl_news 清理本地微调模型依赖后的行为。"""
+
+    def setUp(self):
+        article = MagicMock()
+        article.content = f"<article><p>{_ARTICLE_TEXT}</p></article>".encode("utf-8")
+
+        def get_article(url, **kwargs):
+            self.assertEqual(url, "https://example.com/news/1")
+            return article
+
+        article_request = patch("src.baostock_data_source.requests.get", side_effect=get_article)
+        article_request.start()
+        self.addCleanup(article_request.stop)
 
     def _make_source_with_no_model_methods(self):
         """构造一个 BaostockDataSource，并断言其不再有模型相关方法。"""
@@ -90,6 +103,7 @@ class TestCrawlNewsNoModelDependency(unittest.TestCase):
 
         self.assertIsInstance(out, str)
         self.assertNotIn("模型", out)
+        self.assertIn(_ARTICLE_TEXT, out)
 
     def test_crawl_news_marks_unanalyzed(self):
         """清理后风险/情感字段固定为 '未分析'。"""
@@ -108,6 +122,7 @@ class TestCrawlNewsNoModelDependency(unittest.TestCase):
 
         # 清理后每条新闻的风险/情感都应是 "未分析"
         self.assertIn("未分析", result)
+        self.assertIn(_ARTICLE_TEXT, result)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,9 @@
+-r requirements.txt
+
+# Explicit dependencies used by the offline tests.
+httpx>=0.28.1
+packaging>=24.0
+# Let local test runs ignore .env just like a clean CI checkout.
+python-dotenv>=1.2.0
+# Match the standalone CI tool when requirements.txt also installs uv.
+uv==0.8.12
