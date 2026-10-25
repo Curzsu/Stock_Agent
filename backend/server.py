@@ -61,6 +61,7 @@ from src.utils.pdf_converter import derive_pdf_path
 
 # Import shared stock info extractor (P2-3: 合并 main.py 与 server.py 两套 extract_stock_info)
 from src.utils.stock_extractor import extract_stock_info, COMPANY_CODE_MAP
+from src.utils.agent_output import require_analysis_text
 from backend.market_data import fetch_stock_market
 
 # Import MCP cleanup function
@@ -105,8 +106,8 @@ app.add_middleware(
 async def _shutdown_cleanup_mcp():
     """应用关停时统一清理 MCP 客户端缓存状态。
 
-    MCP 工具列表在进程级缓存、跨请求复用，只在应用关闭时清理一次。
-    工具对象每次调用自行管理 stdio 子进程生命周期，无需逐请求清理。
+    MCP 工具跨请求复用同一个长驻 stdio 会话，故障后由客户端重建。
+    应用关闭时在会话所属任务中退出上下文，无需逐请求清理。
     """
     try:
         await close_mcp_client_sessions()
@@ -197,19 +198,24 @@ def record_agent_result(session, agent_key: str, result: dict, completed_at=None
             int((end - start).total_seconds() * 1000),
         )
 
-    if data.get(error_key):
+    error = data.get(error_key)
+    if not error:
+        try:
+            text = require_analysis_text(data.get(result_key))
+        except ValueError as exc:
+            error = str(exc)
+    if error:
         detail.update({
             "status": "failed",
-            "error": str(data[error_key]),
+            "error": str(error),
             "summary": "",
             "result_available": False,
         })
         session.progress[agent_key] = "failed"
+        session.partial_results.pop(result_key, None)
         return
 
-    text = str(data.get(result_key, "") or "")
-    if text:
-        session.partial_results[result_key] = text
+    session.partial_results[result_key] = text
     detail.update({
         "status": "completed",
         "error": None,
@@ -653,12 +659,8 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         session.end_time = datetime.now().isoformat()
 
     finally:
-        # 不在请求级别清理 MCP 客户端缓存。
-        # 原因：MCP 工具列表是进程级缓存（见 mcp_client.py 说明），工具对象
-        # 每次被调用时都会自行启动独立 stdio 子进程并在调用后关闭，不持有
-        # 长驻连接。因此请求级 close 既无隔离收益，又会清掉缓存导致下一个
-        # 请求要重新加载工具列表（启动子进程 + 握手 + list_tools）。
-        # MCP 客户端的统一清理放在 FastAPI shutdown 事件中执行。
+        # MCP 是跨请求共享的长驻会话；不能在此关闭其他分析仍在使用的连接。
+        # 客户端负责故障恢复，FastAPI shutdown 负责最终清理。
         pass
 
 # ============================================================================

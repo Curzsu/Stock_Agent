@@ -4,7 +4,7 @@ ValueAnalysis Agent: Performs valuation analysis of a stock using ReAct Agent fr
 """
 import os
 from langchain_openai import ChatOpenAI  # 恢复OpenAI接口调用
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 import time
 import asyncio
@@ -13,6 +13,7 @@ from src.utils.state_definition import AgentState
 from src.tools.mcp_client import get_mcp_tools
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
 from src.utils.execution_logger import get_execution_logger
+from src.utils.agent_output import extract_analysis_text
 from src.utils.agent_config import REACT_RECURSION_LIMIT, REACT_TIMEOUT_SECONDS, LLM_TEMPERATURE, LLM_MAX_TOKENS
 from dotenv import load_dotenv
 
@@ -181,35 +182,7 @@ async def value_agent(state: AgentState) -> AgentState:
                 f"ReAct agent execution completed in {execution_time:.2f} seconds")
 
             # 6. 提取分析结果
-            final_output = "No analysis generated."
-
-            if "messages" in response and isinstance(response["messages"], list):
-                messages = response["messages"]
-                logger.info(f"Response messages count: {len(messages)}")
-                
-                # 查找最后一条AI消息，这通常包含最终的分析结果
-                ai_messages = [
-                    msg for msg in messages if isinstance(msg, AIMessage)]
-                logger.info(f"AI messages count: {len(ai_messages)}")
-                
-                if ai_messages:
-                    last_ai_message = ai_messages[-1]
-                    final_output = last_ai_message.content
-                    logger.info(
-                        f"Successfully extracted analysis from AI message.")
-                else:
-                    logger.warning("No AI messages found in response")
-                    # 如果没有AI消息，尝试获取所有消息的内容
-                    all_content = []
-                    for msg in messages:
-                        if hasattr(msg, 'content') and msg.content:
-                            all_content.append(str(msg.content))
-                    if all_content:
-                        final_output = "\n".join(all_content)
-            else:
-                logger.error(f"Unexpected response format: {type(response)}")
-                logger.error(
-                    f"Response keys: {response.keys() if isinstance(response, dict) else 'Not a dict'}")
+            final_output = extract_analysis_text(response)
 
             logger.info(
                 f"Final extracted analysis length: {len(final_output)} characters")

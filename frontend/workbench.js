@@ -193,6 +193,7 @@
 
     function updateStatus(payload = {}) {
       const phase = derivePhase(payload);
+      root.dataset.phase = phase;
       setText(statusText, payload.current_task || phaseLabels[phase] || phaseLabels.running);
       const details = normalizeAgentDetails(payload.agent_details);
       let completed = 0;
@@ -330,6 +331,9 @@
     }
 
     function renderReport(result = {}) {
+      if (result.company_name || result.stock_code) {
+        setText(stockTitle, result.company_name || result.stock_code);
+      }
       const hasMissingDimensions = Array.isArray(result.missing_dimensions)
         && result.missing_dimensions.length > 0;
       if (runningState) runningState.hidden = !hasMissingDimensions;

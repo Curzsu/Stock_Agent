@@ -13,6 +13,7 @@ from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAI
 from src.utils.execution_logger import get_execution_logger
 from src.utils.pdf_converter import generate_pdf_background
 from src.utils.agent_config import REACT_TIMEOUT_SECONDS
+from src.utils.agent_output import extract_analysis_text, require_analysis_text
 from dotenv import load_dotenv
 
 # 从.env文件加载环境变量
@@ -414,7 +415,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
                 llm.ainvoke(summary_prompt_messages),
                 timeout=REACT_TIMEOUT_SECONDS
             )
-            final_report = llm_message.content
+            final_report = extract_analysis_text({"messages": [llm_message]})
 
             # 记录LLM交互执行时间
             llm_execution_time = time.time() - llm_start_time
@@ -435,6 +436,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         
         # 使用正则表达式截断"分析基准时间"那一行之后的内容
         final_report = truncate_report_at_baseline_time(final_report, current_time_info)
+        final_report = require_analysis_text(final_report)
 
         # 在一级标题后插入 [TOC] 目录
         final_report = re.sub(r'^(#[^#].*)$', r'\1\n\n[TOC]', final_report, count=1, flags=re.MULTILINE)

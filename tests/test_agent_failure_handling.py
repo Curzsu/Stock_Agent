@@ -53,7 +53,7 @@ class TestAgentFailureHandling(unittest.TestCase):
     def setUp(self):
         _set_env()
 
-    def _patch_mcp_and_react(self, agent_module, react_behavior):
+    def _patch_mcp_and_react(self, agent_module, react_behavior, react_response=None):
         """
         patch 掉 get_mcp_tools 和 create_react_agent。
         react_behavior: 'raise' / 'timeout' / 'success'
@@ -75,6 +75,8 @@ class TestAgentFailureHandling(unittest.TestCase):
                 raise RuntimeError("LLM boom")
             if react_behavior == "timeout":
                 await asyncio.sleep(100)
+            if react_response is not None:
+                return react_response
             # success
             from langchain_core.messages import AIMessage
             return {"messages": [AIMessage(content="正常分析结果")]}
@@ -103,6 +105,7 @@ class TestAgentFailureHandling(unittest.TestCase):
             import src.agents.fundamental_agent as fa
 
             async def fast_timeout(coro, timeout=None):
+                coro.close()
                 raise asyncio.TimeoutError()
 
             with patch.object(fa.asyncio, "wait_for", fast_timeout):
@@ -181,6 +184,51 @@ class TestAgentFailureHandling(unittest.TestCase):
             self.assertNotIn("fundamental_analysis_error", data, "成功不应写 error")
         finally:
             self._cleanup(patches)
+
+    def test_all_analysts_reject_missing_or_unfinished_final_ai_text(self):
+        from importlib import import_module
+        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+        responses = [
+            {"messages": []},
+            {"messages": [AIMessage(content=" \n ")]},
+            {"messages": [HumanMessage(content="分析600519")]},
+            {"messages": [ToolMessage(content="只有原始数据", tool_call_id="probe")]},
+            {"messages": [AIMessage(content="仍需查询", tool_calls=[
+                {"name": "get_profit_data", "args": {}, "id": "probe"},
+            ])]},
+            {"messages": [AIMessage(content="被截断的分析", response_metadata={"finish_reason": "length"})]},
+        ]
+        for dimension in ("fundamental", "technical", "value", "news"):
+            module = import_module(f"src.agents.{dimension}_agent")
+            for response in responses:
+                with self.subTest(dimension=dimension, response=response):
+                    patches = self._patch_mcp_and_react(module, "success", response)
+                    try:
+                        result = asyncio.run(getattr(module, f"{dimension}_agent")(_make_state()))
+                    finally:
+                        self._cleanup(patches)
+                    self.assertIn(f"{dimension}_analysis_error", result["data"])
+                    self.assertNotIn(f"{dimension}_analysis", result["data"])
+
+    def test_all_analysts_normalize_final_text_content_blocks(self):
+        from importlib import import_module
+        from langchain_core.messages import AIMessage
+
+        response = {"messages": [AIMessage(content=[
+            {"type": "text", "text": " 财务数据已核实。 "},
+            {"type": "text", "text": "风险需关注。"},
+        ])]}
+        for dimension in ("fundamental", "technical", "value", "news"):
+            with self.subTest(dimension=dimension):
+                module = import_module(f"src.agents.{dimension}_agent")
+                patches = self._patch_mcp_and_react(module, "success", response)
+                try:
+                    result = asyncio.run(getattr(module, f"{dimension}_agent")(_make_state()))
+                finally:
+                    self._cleanup(patches)
+                self.assertNotIn(f"{dimension}_analysis_error", result["data"])
+                self.assertEqual(result["data"][f"{dimension}_analysis"], "财务数据已核实。\n风险需关注。")
 
 
 if __name__ == "__main__":

@@ -61,6 +61,19 @@ class TestAnalysisSessionApi(unittest.TestCase):
             "fundamental_analysis": "# 基本面\n\n盈利能力保持稳健。",
         })
 
+    def test_invalid_agent_result_is_failed_instead_of_completed(self):
+        for agent_key, (result_key, _) in server.AGENT_RESULT_KEYS.items():
+            for content in (None, "", " \n ", "No analysis generated.", {"unexpected": "data"}):
+                with self.subTest(agent=agent_key, content=content):
+                    self.session.partial_results[result_key] = "旧结果"
+                    server.record_agent_result(self.session, agent_key, {"data": {result_key: content}})
+                    detail = self.session.agent_details[agent_key]
+                    self.assertEqual(detail["status"], "failed")
+                    self.assertEqual(self.session.progress[agent_key], "failed")
+                    self.assertFalse(detail["result_available"])
+                    self.assertTrue(detail["error"])
+                    self.assertNotIn(result_key, self.session.partial_results)
+
     def test_summary_uses_first_non_heading_paragraph(self):
         text = "# 标题\n\n**结论**\n\n盈利能力保持稳健，现金流良好。\n\n后续详情。"
         self.assertEqual(
