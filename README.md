@@ -13,6 +13,9 @@
 - **MCP 协议集成**：通过 Model Context Protocol 统一接入 A 股数据源
 - **实时进度追踪**：支持异步任务处理，前端实时轮询分析进度
 - **综合报告生成**：AI 自动生成结构化股票分析报告
+- **真实行情展示**：首页展示上证指数日终行情及交易日期，行情不可用时明确提示，不使用模拟价格填充
+- **结果有效性校验**：空响应、未完成的工具调用和因输出上限截断的模型响应会进入失败状态，避免被当作成功报告
+- **故障恢复**：报告加载失败自动尝试最多三次，也可手动重新加载；MCP 数据连接失效后，后续分析或单项重试会重建会话
 
 ## 技术架构
 
@@ -195,6 +198,47 @@ finex/
 ├── TODO.md                     # 待办事项
 └── README.md
 ```
+
+## 持续集成与测试
+
+GitHub Actions 在 PR 和默认分支 `v2.0` 的 push 后自动运行一个 `checks` 作业：
+Python/JavaScript 语法检查、前端测试，以及应用和 MCP 的离线回归。
+不需要配置 API Key，也不会调用真实模型或行情服务。
+
+本地使用 Python 3.10、Node.js 22 和 uv 0.8.12，复现同一套检查：
+
+```bash
+python -m compileall -q backend agents/src mcp-server/src mcp-server/mcp_server.py scripts tests mcp-server/tests
+node --check frontend/workbench.js
+node --test tests/frontend/test_workbench.cjs
+
+python -m pip install -r requirements-test.txt
+python scripts/run_ci_tests.py app
+
+uv sync --locked --directory mcp-server --python 3.10
+uv run --locked --no-sync --directory mcp-server python ../scripts/run_ci_tests.py mcp
+```
+
+最后检查 MCP 实际运行环境中的依赖版本（先完成上面的同步）：
+
+```bash
+# Linux/macOS
+UV_PYTHON=3.10 UV_LOCKED=1 UV_NO_SYNC=1 python scripts/run_ci_tests.py runtime
+```
+
+```powershell
+# Windows PowerShell
+$env:UV_PYTHON = "3.10"
+$env:UV_LOCKED = "1"
+$env:UV_NO_SYNC = "1"
+python scripts/run_ci_tests.py runtime
+```
+
+执行脚本会忽略本机 `.env` 并按文件启动独立 Python 进程，避免 Agent 与 MCP
+都使用 `src` 包名造成冲突；失败、超时或未收集到测试都会返回失败状态。
+历史联网诊断脚本不纳入这套回归。结果直接查看 Actions 日志。
+
+需要阻止失败 PR 合并时，在 GitHub 仓库规则中将 `checks` 设为必过检查。
 
 ## API 文档
 

@@ -10,7 +10,10 @@ import os
 import sys
 import tempfile
 import threading
+import ntpath
+import posixpath
 from pathlib import Path
+from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
@@ -35,11 +38,17 @@ class TestDerivePdfPath(unittest.TestCase):
         self.assertEqual(os.path.normpath(result), os.path.normpath("/app/output/report.pdf"))
 
     def test_windows_path(self):
-        """Windows 路径也能处理"""
-        from src.utils.pdf_converter import derive_pdf_path
-        result = derive_pdf_path(r"E:\proj\reports\md\report.md")
-        # 用 os.path.normpath 归一化后比较
-        self.assertTrue(result.endswith(os.path.join("pdf", "report.pdf")))
+        """在任何 CI 主机上验证 Windows 的原生路径语义。"""
+        from src.utils import pdf_converter
+        with patch.object(pdf_converter, "os", SimpleNamespace(path=ntpath)):
+            result = pdf_converter.derive_pdf_path(r"E:\proj\reports\md\report.md")
+        self.assertEqual(result, r"E:\proj\reports\pdf\report.pdf")
+
+    def test_posix_path(self):
+        from src.utils import pdf_converter
+        with patch.object(pdf_converter, "os", SimpleNamespace(path=posixpath)):
+            result = pdf_converter.derive_pdf_path("/app/reports/md/report.md")
+        self.assertEqual(result, "/app/reports/pdf/report.pdf")
 
     def test_parallel_pdf_rendering_keeps_each_reports_content(self):
         from src.utils import pdf_converter

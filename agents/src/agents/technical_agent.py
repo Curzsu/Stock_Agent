@@ -4,7 +4,7 @@ TechnicalAnalysis Agent: Performs technical analysis of a stock using ReAct Agen
 """
 import os
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 import time
 import asyncio
@@ -14,6 +14,7 @@ from src.tools.mcp_client import get_mcp_tools
 from src.utils.agent_config import REACT_RECURSION_LIMIT, REACT_TIMEOUT_SECONDS, LLM_TEMPERATURE, LLM_MAX_TOKENS
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
 from src.utils.execution_logger import get_execution_logger
+from src.utils.agent_output import extract_analysis_text
 from dotenv import load_dotenv
 
 # 从.env文件加载环境变量
@@ -166,28 +167,7 @@ async def technical_agent(state: AgentState) -> AgentState:
             logger.info(f"ReAct agent execution completed in {execution_time:.2f} seconds")
 
             # 6. 提取分析结果
-            final_output = "No analysis generated."
-            
-            if "messages" in response and isinstance(response["messages"], list):
-                messages = response["messages"]
-                # 查找最后一条AI消息，这通常包含最终的分析结果
-                ai_messages = [msg for msg in messages if isinstance(msg, AIMessage)]
-                if ai_messages:
-                    last_ai_message = ai_messages[-1]
-                    final_output = last_ai_message.content
-                    logger.info(f"Successfully extracted analysis from AI message.")
-                else:
-                    logger.warning("No AI messages found in response")
-                    # 如果没有AI消息，尝试获取所有消息的内容
-                    all_content = []
-                    for msg in messages:
-                        if hasattr(msg, 'content') and msg.content:
-                            all_content.append(str(msg.content))
-                    if all_content:
-                        final_output = "\n".join(all_content)
-            else:
-                logger.error(f"Unexpected response format: {type(response)}")
-                logger.error(f"Response keys: {response.keys() if isinstance(response, dict) else 'Not a dict'}")
+            final_output = extract_analysis_text(response)
 
             logger.info(f"Final extracted analysis length: {len(final_output)} characters")
             # 安全打印，处理Windows GBK编码问题
@@ -295,4 +275,4 @@ async def test_technical_agent():
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(test_technical_agent()) 
+    asyncio.run(test_technical_agent())

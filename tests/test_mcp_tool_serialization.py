@@ -4,6 +4,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from anyio import BrokenResourceError
+from mcp.shared.exceptions import McpError
+from mcp.types import CONNECTION_CLOSED, ErrorData
+
 from langchain_core.tools import StructuredTool
 
 
@@ -247,6 +251,138 @@ class TestMcpToolSerialization(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(asyncio.TimeoutError):
             await protected[0].ainvoke({})
+
+    async def test_dead_session_is_replaced_once_for_concurrent_callers(self):
+        for cancelled in (False, True):
+            with self.subTest(cancelled=cancelled):
+                contexts = []
+
+                class SessionContext:
+                    closed = False
+
+                    async def __aenter__(self):
+                        self.enter_task = asyncio.current_task()
+                        return self
+
+                    async def __aexit__(self, *args):
+                        self.closed = True
+                        self.exit_task = asyncio.current_task()
+
+                class Client:
+                    def session(self, name):
+                        context = SessionContext()
+                        contexts.append(context)
+                        return context
+
+                async def load_tools(session):
+                    generation = len(contexts)
+
+                    async def probe() -> int:
+                        if session.closed:
+                            raise ConnectionError("closed session")
+                        return generation
+
+                    return [StructuredTool.from_function(name="probe", description="Session generation", coroutine=probe)]
+
+                with patch.object(mcp_client, "MultiServerMCPClient", side_effect=lambda _: Client()), \
+                     patch.object(mcp_client, "load_mcp_tools", side_effect=load_tools):
+                    try:
+                        first = await mcp_client.get_mcp_tools()
+                        self.assertEqual(await first[0].ainvoke({}), 1)
+                        owner = mcp_client._mcp_session_task
+                        if cancelled:
+                            owner.cancel()
+                        else:
+                            mcp_client._mcp_session_close_event.set()
+                        await asyncio.gather(owner, return_exceptions=True)
+                        replacements = await asyncio.gather(*(mcp_client.get_mcp_tools() for _ in range(4)))
+                        self.assertEqual(await replacements[0][0].ainvoke({}), 2)
+                        self.assertEqual(len(contexts), 2)
+                        self.assertTrue(all(tools is replacements[0] for tools in replacements))
+                    finally:
+                        await mcp_client.close_mcp_client_sessions()
+                self.assertTrue(all(context.closed for context in contexts))
+                self.assertTrue(all(context.enter_task is context.exit_task for context in contexts))
+
+    async def test_closed_transport_reconnects_even_when_owner_is_still_waiting(self):
+        for error in (ConnectionError("pipe closed"), BrokenResourceError(),
+                      McpError(ErrorData(code=CONNECTION_CLOSED, message="Connection closed"))):
+            with self.subTest(error=type(error).__name__):
+                sessions = []
+
+                class SessionContext:
+                    disconnected = False
+
+                    async def __aenter__(self):
+                        sessions.append(self)
+                        return self
+
+                    async def __aexit__(self, *args):
+                        self.disconnected = True
+
+                class Client:
+                    def session(self, name):
+                        return SessionContext()
+
+                async def load_tools(session):
+                    async def probe() -> str:
+                        if session.disconnected:
+                            raise error
+                        return "connected"
+
+                    return [StructuredTool.from_function(name="probe", description="Transport probe", coroutine=probe)]
+
+                with patch.object(mcp_client, "MultiServerMCPClient", side_effect=lambda _: Client()), \
+                     patch.object(mcp_client, "load_mcp_tools", side_effect=load_tools):
+                    try:
+                        first = await mcp_client.get_mcp_tools()
+                        sessions[0].disconnected = True
+                        self.assertFalse(mcp_client._mcp_session_task.done())
+                        with self.assertRaises(type(error)):
+                            await first[0].ainvoke({})
+                        replacement = await mcp_client.get_mcp_tools()
+                        self.assertEqual(await replacement[0].ainvoke({}), "connected")
+                        self.assertEqual(len(sessions), 2)
+                    finally:
+                        await mcp_client.close_mcp_client_sessions()
+
+    async def test_cancelled_initialization_closes_its_unpublished_session(self):
+        entered = asyncio.Event()
+        task_identities = []
+
+        class SessionContext:
+            async def __aenter__(self):
+                task_identities.append(asyncio.current_task())
+                return object()
+
+            async def __aexit__(self, *args):
+                task_identities.append(asyncio.current_task())
+
+        class Client:
+            def session(self, name):
+                return SessionContext()
+
+        async def wait_for_tools(session):
+            entered.set()
+            await asyncio.Event().wait()
+
+        with patch.object(mcp_client, "MultiServerMCPClient", return_value=Client()), \
+             patch.object(mcp_client, "load_mcp_tools", new=wait_for_tools):
+            request = asyncio.create_task(mcp_client.get_mcp_tools())
+            try:
+                await entered.wait()
+                request.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await request
+                owners = [task for task in asyncio.all_tasks() if task.get_name() == "persistent-mcp-session-owner"]
+                self.assertEqual(owners, [], "cancelled initialization must not leak its MCP owner")
+                self.assertEqual(len(task_identities), 2)
+                self.assertIs(task_identities[0], task_identities[1])
+            finally:
+                owners = [task for task in asyncio.all_tasks() if task.get_name() == "persistent-mcp-session-owner"]
+                for owner in owners:
+                    owner.cancel()
+                await asyncio.gather(*owners, return_exceptions=True)
 
 
 if __name__ == "__main__":

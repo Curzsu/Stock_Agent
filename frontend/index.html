@@ -1983,18 +1983,18 @@
     <div class="market-container">
       <div class="market-header reveal">
         <div>
-          <h2 class="market-title">实时行情</h2>
-          <p class="market-sub">上证指数历史走势</p>
+          <h2 class="market-title">指数日线行情</h2>
+          <p class="market-sub">上证指数历史走势 · 最近交易日收盘</p>
         </div>
         <div class="market-tags">
-          <span class="market-tag up">沪指 +0.86%</span>
-          <span class="market-tag up">深成指 +1.12%</span>
-          <span class="market-tag down">创业板 -0.24%</span>
+          <span class="market-tag" id="marketIndexChange">沪指 —</span>
+          <span class="market-tag" id="marketTradeDateLabel">等待行情数据</span>
         </div>
       </div>
       <div class="market-card reveal">
         <div class="market-chart" id="marketChart"></div>
       </div>
+      <p class="market-hint" id="marketDataStatus" role="status">正在加载最近交易日行情…</p>
       <p class="market-hint">点击图表，滚动鼠标滚轮可放大缩小 K 线</p>
     </div>
   </section>
@@ -2102,6 +2102,7 @@
         <div class="workbench-meta" aria-live="polite">
           <span class="workbench-time" id="elapsedTime">00:00</span>
           <span class="workbench-status"><i aria-hidden="true"></i><span id="statusText">准备中</span></span>
+          <button class="report-btn" id="retryReportBtn" type="button" hidden>重新加载报告</button>
         </div>
       </header>
 
@@ -2480,6 +2481,9 @@
     function initMarketChart() {
       const container = document.getElementById('marketChart');
       const section = document.getElementById('marketSection');
+      const changeLabel = document.getElementById('marketIndexChange');
+      const dateLabel = document.getElementById('marketTradeDateLabel');
+      const dataStatus = document.getElementById('marketDataStatus');
       if (!container || typeof LightweightCharts === 'undefined') {
         if (section) section.style.display = 'none';
         return;
@@ -2533,29 +2537,7 @@
         }
       }
 
-      // 回退用的模拟数据（后端不可达时使用，保证图表不空白）
-      function mockData() {
-        const candles = [];
-        const volumes = [];
-        let price = 150 + Math.random() * 20;
-        let seed = 42;
-        const rand = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
-        const start = Math.floor(Date.now() / 1000 / 86400) * 86400;
-        const days = 80;
-        for (let i = 0; i < days; i++) {
-          const open = price;
-          const drift = (rand() - 0.48) * 4;
-          const close = Math.max(60, open + drift);
-          const high = Math.max(open, close) + rand() * 3;
-          const low = Math.min(open, close) - rand() * 3;
-          candles.push({ time: start - (days - i) * 86400, open, high, low, close });
-          volumes.push({ time: start - (days - i) * 86400, value: Math.round(2 + rand() * 6) });
-          price = close;
-        }
-        return { candles, volumes };
-      }
-
-      // 尝试拉取真实上证指数日K，失败回退 mock
+      // 仅展示真实日终行情；失败时明确提示，不生成替代价格。
       async function load() {
         try {
           const res = await fetch(`${API_BASE}/market-kline?days=90`);
@@ -2564,15 +2546,35 @@
           if (!json.ok || !Array.isArray(json.data) || json.data.length === 0) {
             throw new Error(json.error || '无数据');
           }
+          if (!json.data.every((row) => ['time', 'open', 'high', 'low', 'close', 'volume']
+            .every((key) => Number.isFinite(row[key])))) {
+            throw new Error('行情数据格式无效');
+          }
           const candles = json.data.map(d => ({
             time: d.time, open: d.open, high: d.high, low: d.low, close: d.close,
           }));
           const volumes = json.data.map(d => ({ time: d.time, value: d.volume }));
           renderData(candles, volumes);
+          const latest = candles[candles.length - 1];
+          const previous = candles[candles.length - 2];
+          const change = previous && previous.close > 0
+            ? (latest.close / previous.close - 1) * 100 : null;
+          changeLabel.textContent = change == null ? '沪指 涨跌幅暂缺'
+            : `沪指 ${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+          changeLabel.className = `market-tag${change == null ? '' : change >= 0 ? ' up' : ' down'}`;
+          const tradeDate = new Intl.DateTimeFormat('sv-SE', {
+            timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+          }).format(new Date(latest.time * 1000));
+          dateLabel.textContent = `交易日 ${tradeDate}`;
+          dataStatus.textContent = '数据来源：BaoStock · 最近交易日收盘数据，非实时行情';
+          container.hidden = false;
         } catch (e) {
-          console.warn('market-kline 获取失败，回退模拟数据:', e);
-          const { candles, volumes } = mockData();
-          renderData(candles, volumes);
+          console.warn('market-kline 获取失败:', e);
+          container.hidden = true;
+          changeLabel.textContent = '沪指 —';
+          changeLabel.className = 'market-tag';
+          dateLabel.textContent = '暂无交易日数据';
+          dataStatus.textContent = '行情数据暂不可用，请稍后刷新重试。';
         }
       }
       load();
@@ -2661,6 +2663,8 @@
     // 本次分析是否已完成并处理过（弹过完成通知）。用于防止 visibilitychange /
     // 重复轮询在分析结束后反复触发完成通知（无限弹窗）。
     let _completionHandled = false;
+    let _resultLoad = null;
+    let _analysisViewVersion = 0;
     let currentQuery = '';
 
     // Request notification permission on page load
@@ -2670,6 +2674,10 @@
 
     // 通用返回首页函数
     function goHome() {
+      _analysisViewVersion++;
+      stopBackgroundPolling();
+      resetReportLoading();
+      currentAnalysisId = null;
       heroSection.style.display = 'flex';
       heroSection.style.opacity = '1';
       heroSection.style.transition = 'opacity 0.3s ease';
@@ -2756,6 +2764,9 @@
 
     // 恢复正在进行的分析视图
     async function resumeAnalysis(analysisId, displayName) {
+      const viewVersion = ++_analysisViewVersion;
+      stopBackgroundPolling();
+      resetReportLoading();
       currentAnalysisId = analysisId;
       // 恢复分析也视为新的处理流程，重置完成处理标志
       _completionHandled = false;
@@ -2776,6 +2787,7 @@
         const statusRes = await fetch(`${API_BASE}/status/${analysisId}`);
         if (statusRes.ok) {
           const statusData = await statusRes.json();
+          if (viewVersion !== _analysisViewVersion) return;
           // 先用已有的进度更新卡片
           workbench.updateStatus(statusData);
           previousProgress = { ...(statusData.progress || {}) };
@@ -2792,9 +2804,11 @@
           }
         }
       } catch (e) {
+        if (viewVersion !== _analysisViewVersion) return;
         seconds = 0;
       }
 
+      if (viewVersion !== _analysisViewVersion) return;
       updateTimer();
       if (elapsedInterval) clearInterval(elapsedInterval);
       elapsedInterval = setInterval(updateTimer, 1000);
@@ -2806,34 +2820,38 @@
 
     // 查看已完成分析的报告
     async function viewCompletedReport(analysisId) {
+      const viewVersion = ++_analysisViewVersion;
+      stopBackgroundPolling();
+      resetReportLoading();
+      currentAnalysisId = analysisId;
+      _completionHandled = false;
+      currentResult = null;
+      previousProgress = {};
+      currentMarketCode = null;
+      heroSection.style.display = 'none';
+      historySection.style.display = 'none';
+      setLandingVisible(false);
+      analysisSection.classList.add('active');
+      workbench.reset('正在加载历史报告');
       try {
-        const [res, statusRes] = await Promise.all([
-          fetch(`${API_BASE}/result/${analysisId}`),
-          fetch(`${API_BASE}/status/${analysisId}`),
-        ]);
-        if (!res.ok) return;
-        const result = await res.json();
+        const statusRes = await fetch(`${API_BASE}/status/${analysisId}`);
         const statusData = statusRes.ok ? await statusRes.json() : null;
-        currentAnalysisId = analysisId;
-        currentResult = result;
-        heroSection.style.display = 'none';
-        historySection.style.display = 'none';
-        setLandingVisible(false);
-        analysisSection.classList.add('active');
-        workbench.reset(result.company_name || result.stock_code || '股票标的');
+        if (viewVersion !== _analysisViewVersion) return;
         if (statusData) {
           workbench.updateStatus(statusData);
           previousProgress = { ...(statusData.progress || {}) };
         }
-        currentMarketCode = (statusData && statusData.stock_code) || result.stock_code || null;
+        currentMarketCode = (statusData && statusData.stock_code) || null;
         if (currentMarketCode) loadWorkbenchMarket(currentMarketFrequency);
-        goToReport();
         if (statusData && window.FinexWorkbench.hasRunningAgents(statusData)) {
-          _completionHandled = false;
           pollAnalysisStatus();
+          return;
         }
+        await loadCompletedReport(statusData || { status: 'completed' }, false);
       } catch (e) {
+        if (viewVersion !== _analysisViewVersion) return;
         console.error('Failed to load report:', e);
+        await loadCompletedReport({ status: 'completed' }, false);
       }
     }
 
@@ -2979,6 +2997,10 @@
       }
 
       // Clean up previous analysis state
+      _analysisViewVersion++;
+      stopBackgroundPolling();
+      resetReportLoading();
+      currentAnalysisId = null;
       currentResult = null;
       previousProgress = {};
       currentMarketCode = null;
@@ -3025,6 +3047,7 @@
     }
 
     async function startRealAnalysis(query) {
+      const viewVersion = _analysisViewVersion;
       currentQuery = query;
       try {
         // Start analysis
@@ -3035,6 +3058,7 @@
         });
 
         const data = await response.json();
+        if (viewVersion !== _analysisViewVersion) return;
         if (!response.ok || !data.analysis_id) throw new Error(data.detail || '启动分析失败');
         currentAnalysisId = data.analysis_id;
         // 新分析开始，重置完成处理标志
@@ -3044,6 +3068,7 @@
         pollAnalysisStatus();
 
       } catch (error) {
+        if (viewVersion !== _analysisViewVersion) return;
         console.error('Failed to start analysis:', error);
         clearInterval(elapsedInterval);
         elapsedInterval = null;
@@ -3081,18 +3106,24 @@
 
     async function retryFailedAgent(agentKey) {
       if (!currentAnalysisId) return;
+      const analysisId = currentAnalysisId;
+      const viewVersion = _analysisViewVersion;
       try {
-        const response = await fetch(`${API_BASE}/analysis/${currentAnalysisId}/retry/${agentKey}`, {
+        const response = await fetch(`${API_BASE}/analysis/${analysisId}/retry/${agentKey}`, {
           method: 'POST',
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.detail || '该分析项暂时无法重试');
         }
+        if (viewVersion !== _analysisViewVersion) return;
+        _analysisViewVersion++;
+        resetReportLoading();
         _completionHandled = false;
         previousProgress = { ...previousProgress, [agentKey]: 'running', summary: 'waiting' };
         pollAnalysisStatus();
       } catch (error) {
+        if (viewVersion !== _analysisViewVersion) return;
         workbench.renderError(error.message || '重试失败，请稍后再试。');
       }
     }
@@ -3142,22 +3173,9 @@
         // 已完成且已处理过（弹过通知）：只清理，不再重复获取结果/弹窗，
         // 否则切回前台补轮询会再次触发（无限弹窗）。
         if (_completionHandled) { stopBackgroundPolling(); return; }
-        _completionHandled = true;
         stopBackgroundPolling();
-        (async () => {
-          try {
-            const resultResponse = await fetch(`${API_BASE}/result/${currentAnalysisId}`);
-            const result = await resultResponse.json();
-            displayResults(result);
-            clearInterval(elapsedInterval);
-            if ('Notification' in window && Notification.permission === 'granted') {
-              const name = currentQuery || '股票';
-              new Notification('股票分析完成', { body: `${name} 的分析报告已生成` });
-            }
-          } catch (e) {
-            console.error('Failed to load result:', e);
-          }
-        })();
+        clearInterval(elapsedInterval);
+        loadCompletedReport(status);
       } else if (status.status === 'error') {
         stopBackgroundPolling();
         clearInterval(elapsedInterval);
@@ -3166,12 +3184,89 @@
       // status === 'running' → Worker 继续轮询，无需额外处理
     }
 
+    function resetReportLoading() {
+      const previous = _resultLoad;
+      _resultLoad = null;
+      if (previous) {
+        clearTimeout(previous.retryTimer);
+        if (previous.controller) previous.controller.abort();
+      }
+      document.getElementById('retryReportBtn').hidden = true;
+    }
+
+    async function loadCompletedReport(status = { status: 'completed' }, notify = true) {
+      const analysisId = currentAnalysisId;
+      if (!analysisId || _completionHandled) return;
+      if (!_resultLoad || _resultLoad.analysisId !== analysisId) {
+        resetReportLoading();
+        _resultLoad = { analysisId, status, notify, viewVersion: _analysisViewVersion,
+          attempts: 0, inFlight: false, retryTimer: null, controller: null };
+      }
+      const request = _resultLoad;
+      if (request.inFlight || request.retryTimer || request.attempts >= 3) return;
+      const isCurrent = () => _resultLoad === request && currentAnalysisId === analysisId
+        && request.viewVersion === _analysisViewVersion;
+      request.inFlight = true;
+      request.attempts++;
+      const controller = new AbortController();
+      request.controller = controller;
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        const response = await fetch(`${API_BASE}/result/${analysisId}`, { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json();
+        if (!result || typeof result.final_report !== 'string' || !result.final_report.trim()) {
+          throw new Error('报告内容暂不可用');
+        }
+        if (!isCurrent()) return;
+        workbench.updateStatus({ ...request.status, current_task: null });
+        displayResults(result);
+        _completionHandled = true;
+        document.getElementById('retryReportBtn').hidden = true;
+        if (request.notify && 'Notification' in window && Notification.permission === 'granted') {
+          try {
+            new Notification('股票分析完成', { body: `${currentQuery || '股票'} 的分析报告已生成` });
+          } catch (error) {
+            console.error('Failed to show completion notification:', error);
+          }
+        }
+      } catch (error) {
+        if (!isCurrent()) return;
+        console.error('Failed to load result:', error);
+        if (request.attempts < 3) {
+          workbench.renderError('报告已生成，加载暂时失败，正在重新加载…');
+          request.retryTimer = setTimeout(async () => {
+            request.retryTimer = null;
+            if (isCurrent()) await loadCompletedReport(request.status, request.notify);
+          }, 2000);
+        } else {
+          workbench.renderError('报告已生成，但暂时无法加载。请点击“重新加载报告”。');
+          document.getElementById('retryReportBtn').hidden = false;
+        }
+      } finally {
+        clearTimeout(timeout);
+        request.inFlight = false;
+        request.controller = null;
+      }
+    }
+
+    document.getElementById('retryReportBtn').addEventListener('click', () => {
+      const status = _resultLoad && _resultLoad.status;
+      const notify = _resultLoad ? _resultLoad.notify : true;
+      resetReportLoading();
+      return loadCompletedReport(status, notify);
+    });
+
     // 立即补一次轮询（切回前台时快速刷新；Worker 仍在后台持续运行）
     async function pollOnceNow() {
       if (!currentAnalysisId) return;
+      const analysisId = currentAnalysisId;
+      const viewVersion = _analysisViewVersion;
       try {
-        const response = await fetch(`${API_BASE}/status/${currentAnalysisId}`);
+        const response = await fetch(`${API_BASE}/status/${analysisId}`);
+        if (!response.ok) return;
         const status = await response.json();
+        if (viewVersion !== _analysisViewVersion || analysisId !== currentAnalysisId) return;
         handlePollStatus(status);
       } catch (e) {
         // 瞬时网络错误：交给 Worker 继续轮询
@@ -3188,6 +3283,8 @@
     function startBackgroundPolling() {
       stopBackgroundPolling(false);
       if (!currentAnalysisId) return;
+      const analysisId = currentAnalysisId;
+      const viewVersion = _analysisViewVersion;
       const workerSource = `
         let __timer = null, __id = null;
         self.onmessage = (e) => {
@@ -3220,22 +3317,29 @@
         startFallbackPolling();
         return;
       }
+      const worker = _statusWorker;
+      const isCurrent = () => _statusWorker === worker && viewVersion === _analysisViewVersion
+        && analysisId === currentAnalysisId;
       _statusWorker.onmessage = (e) => {
+        if (!isCurrent()) return;
         const d = e.data || {};
         if (d.type === 'status') handlePollStatus(d.status);
       };
       // Worker 异常时退回前台定时轮询，避免完全失去进度更新。
-      _statusWorker.onerror = startFallbackPolling;
+      _statusWorker.onerror = () => { if (isCurrent()) startFallbackPolling(); };
       _statusWorker.postMessage({ type: 'start', analysisId: currentAnalysisId, base: API_BASE });
     }
 
     // 启动/恢复轮询（保持原入口名）
     async function pollAnalysisStatus() {
       if (!currentAnalysisId) return;
+      const analysisId = currentAnalysisId;
+      const viewVersion = _analysisViewVersion;
       // 重置 30 分钟超时期限，从本次开始重新计时
       _pollDeadline = Date.now() + POLL_MAX_MS;
       // 先立即拉一次快速反馈，再启动 Worker 后台持续轮询
       await pollOnceNow();
+      if (viewVersion !== _analysisViewVersion || analysisId !== currentAnalysisId) return;
       if (_pollDeadline > 0 && !_completionHandled) startBackgroundPolling();
     }
 

@@ -12,7 +12,7 @@ langchain-openai>=0.3.0
 langchain-mcp-adapters>=0.1.9
 
 # Data tools
-baostock>=0.8.9
+baostock>=0.9.3
 
 # PDF Generation
 xhtml2pdf>=0.2.0

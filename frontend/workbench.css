@@ -581,7 +581,7 @@
   background: transparent;
 }
 
-.workbench-report[hidden] { display: none !important; }
+.workbench-report[hidden], #retryReportBtn[hidden] { display: none !important; }
 .workbench-report {
   display: grid;
   grid-template-columns: minmax(155px, .25fr) minmax(0, 1fr);

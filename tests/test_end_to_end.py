@@ -87,7 +87,7 @@ async def _fake_get_mcp_tools():
     return [MagicMock(name="fake_tool")]
 
 
-def _make_fake_llm(report_content="这是模拟综合报告内容", llm_calls=None):
+def _make_fake_llm(report_content="这是模拟综合报告内容", llm_calls=None, report_message=None):
     """
     造一个假 summary LLM：ChatOpenAI(...) 的返回值。
     summary_agent 调 await llm.ainvoke(messages) 并取 .content。
@@ -98,7 +98,7 @@ def _make_fake_llm(report_content="这是模拟综合报告内容", llm_calls=No
     async def fake_ainvoke(messages):
         if llm_calls is not None:
             llm_calls.append(messages)
-        return MagicMock(content=report_content)
+        return report_message if report_message is not None else AIMessage(content=report_content)
 
     fake_llm.ainvoke = fake_ainvoke
     return fake_llm
@@ -157,7 +157,7 @@ def _patch_analysis_agents(contents=None, failures=None):
     return patchers
 
 
-def _patch_summary(report_content="这是模拟综合报告内容"):
+def _patch_summary(report_content="这是模拟综合报告内容", report_message=None):
     """
     patch summary_agent 的 ChatOpenAI 与 generate_pdf_background。
     返回 (patchers, llm_calls) -- llm_calls 记录 summary 是否真的调了 LLM。
@@ -175,7 +175,7 @@ def _patch_summary(report_content="这是模拟综合报告内容"):
     llm_calls = []
 
     def fake_chat_openai_factory(*args, **kwargs):
-        return _make_fake_llm(report_content=report_content, llm_calls=llm_calls)
+        return _make_fake_llm(report_content=report_content, llm_calls=llm_calls, report_message=report_message)
 
     p1 = patch.object(langchain_openai, "ChatOpenAI", new=fake_chat_openai_factory)
     p1.start()
@@ -277,6 +277,38 @@ class TestEndToEnd(unittest.TestCase):
             set(result_keys),
             {"fundamental", "technical", "value", "news", "summary"},
         )
+
+    def test_summary_rejects_empty_report_instead_of_reporting_success(self):
+        from src.agents.summary_agent import summary_agent
+
+        for content in ("", " \n ", "```markdown\n```"):
+            with self.subTest(content=content):
+                patchers, _ = _patch_summary(report_content=content)
+                try:
+                    result = asyncio.run(summary_agent(_make_initial_state()))
+                finally:
+                    for patcher in patchers:
+                        patcher.stop()
+                self.assertIn("summary_error", result["data"])
+                self.assertIsNone(result["data"].get("pdf_path"))
+
+    def test_summary_rejects_truncated_or_unfinished_ai_messages(self):
+        from src.agents.summary_agent import summary_agent
+        from langchain_core.messages import HumanMessage
+
+        for message in (
+            AIMessage(content="被截断的报告", response_metadata={"finish_reason": "length"}),
+            AIMessage(content="还需调用工具", tool_calls=[{"name": "probe", "args": {}, "id": "probe"}]),
+            HumanMessage(content="原始查询不是报告"),
+        ):
+            with self.subTest(message=message):
+                patchers, _ = _patch_summary(report_message=message)
+                try:
+                    result = asyncio.run(summary_agent(_make_initial_state()))
+                finally:
+                    for patcher in patchers:
+                        patcher.stop()
+                self.assertIn("summary_error", result["data"])
 
     def test_workflow_handles_agent_failure_gracefully(self):
         """
