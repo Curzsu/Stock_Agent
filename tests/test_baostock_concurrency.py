@@ -56,7 +56,7 @@ def _install_fake_baostock():
         state["_connected"] = False
         return _ResultData()
 
-    def query_stock_basic(code=None):
+    def query_stock_basic(code=None, code_name=None):
         # 放大竞态窗口：query 期间 sleep，让其他线程有机会 logout
         time.sleep(0.05)
         if not state["_connected"]:
