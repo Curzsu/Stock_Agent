@@ -3,7 +3,7 @@ ValueAnalysis Agent: Performs valuation analysis of a stock using ReAct Agent fr
 估值分析 Agent：使用ReAct Agent框架对股票进行估值分析
 """
 import os
-from langchain_openai import ChatOpenAI  # 恢复OpenAI接口调用
+from src.utils.chat_model import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 import time

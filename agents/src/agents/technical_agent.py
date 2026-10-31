@@ -3,7 +3,7 @@ TechnicalAnalysis Agent: Performs technical analysis of a stock using ReAct Agen
 技术分析 Agent：使用ReAct Agent框架对股票进行技术分析
 """
 import os
-from langchain_openai import ChatOpenAI
+from src.utils.chat_model import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 import time

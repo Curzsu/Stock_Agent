@@ -5,7 +5,7 @@ from typing import List, Optional, Dict  # 类型注解支持，增强代码可�
 import logging         # 日志记录模块，用于跟踪程序执行和调试
 from .data_source_interface import FinancialDataSource, DataSourceError, NoDataFoundError, LoginError
 from .utils import (
-    baostock_login_context,  # 登录上下文管理器，自动处理登录登出
+    safe_query,  # 跨进程串行访问，完整读取后关闭连接
     fetch_financial_data,    # 通用财务数据获取函数
     fetch_index_constituent_data,  # 通用指数成分股数据获取函数
     fetch_macro_data,        # 通用宏观经济数据获取函数
@@ -179,47 +179,46 @@ class BaostockDataSource(FinancialDataSource):
             logger.debug(
                 f"Requesting fields from Baostock: {formatted_fields}")
 
-            # 使用登录上下文管理器确保API连接
-            with baostock_login_context():
-                # 调用Baostock API获取K线数据
-                rs = bs.query_history_k_data_plus(
-                    code,
-                    formatted_fields,
-                    start_date=start_date,
-                    end_date=end_date,
-                    frequency=frequency,
-                    adjustflag=adjust_flag
-                )
+            # 通过共享入口串行访问并完整读取数据
+            # 调用Baostock API获取K线数据
+            rs = safe_query(bs.query_history_k_data_plus,
+                code,
+                formatted_fields,
+                start_date=start_date,
+                end_date=end_date,
+                frequency=frequency,
+                adjustflag=adjust_flag
+            )
 
-                # 检查API返回的错误码
-                if rs.error_code != '0':
-                    logger.error(
-                        f"Baostock API error (K-data) for {code}: {rs.error_msg} (code: {rs.error_code})")
+            # 检查API返回的错误码
+            if rs.error_code != '0':
+                logger.error(
+                    f"Baostock API error (K-data) for {code}: {rs.error_msg} (code: {rs.error_code})")
                     
-                    # 区分"无数据"和"API错误"两种情况
-                    if "no record found" in rs.error_msg.lower() or rs.error_code == '10002':
-                        raise NoDataFoundError(
-                            f"No historical data found for {code} in the specified range. Baostock msg: {rs.error_msg}")
-                    else:
-                        raise DataSourceError(
-                            f"Baostock API error fetching K-data: {rs.error_msg} (code: {rs.error_code})")
-
-                # 遍历结果集，收集所有数据行
-                data_list = []
-                while rs.next():
-                    data_list.append(rs.get_row_data())
-
-                # 检查是否为空结果集
-                if not data_list:
-                    logger.warning(
-                        f"No historical data found for {code} in range (empty result set from Baostock).")
+                # 区分"无数据"和"API错误"两种情况
+                if "no record found" in rs.error_msg.lower() or rs.error_code == '10002':
                     raise NoDataFoundError(
-                        f"No historical data found for {code} in the specified range (empty result set).")
+                        f"No historical data found for {code} in the specified range. Baostock msg: {rs.error_msg}")
+                else:
+                    raise DataSourceError(
+                        f"Baostock API error fetching K-data: {rs.error_msg} (code: {rs.error_code})")
 
-                # 将数据转换为DataFrame，使用API返回的字段名作为列名
-                result_df = pd.DataFrame(data_list, columns=rs.fields)
-                logger.info(f"Retrieved {len(result_df)} records for {code}.")
-                return result_df
+            # 遍历结果集，收集所有数据行
+            data_list = []
+            while rs.next():
+                data_list.append(rs.get_row_data())
+
+            # 检查是否为空结果集
+            if not data_list:
+                logger.warning(
+                    f"No historical data found for {code} in range (empty result set from Baostock).")
+                raise NoDataFoundError(
+                    f"No historical data found for {code} in the specified range (empty result set).")
+
+            # 将数据转换为DataFrame，使用API返回的字段名作为列名
+            result_df = pd.DataFrame(data_list, columns=rs.fields)
+            logger.info(f"Retrieved {len(result_df)} records for {code}.")
+            return result_df
 
         except (LoginError, NoDataFoundError, DataSourceError, ValueError) as e:
             # 已知异常直接重新抛出
@@ -242,57 +241,55 @@ class BaostockDataSource(FinancialDataSource):
             logger.debug(
                 f"Requesting basic info for {code}. Optional fields requested: {fields}")
 
-            # 使用登录上下文管理器
-            with baostock_login_context():
-                # 调用Baostock API获取股票基本信息
-                rs = bs.query_stock_basic(code=code)
+                        # 调用Baostock API获取股票基本信息
+            rs = safe_query(bs.query_stock_basic, code=code)
 
-                # 检查API错误
-                if rs.error_code != '0':
-                    logger.error(
-                        f"Baostock API error (Basic Info) for {code}: {rs.error_msg} (code: {rs.error_code})")
+            # 检查API错误
+            if rs.error_code != '0':
+                logger.error(
+                    f"Baostock API error (Basic Info) for {code}: {rs.error_msg} (code: {rs.error_code})")
                     
-                    # 区分无数据和API错误
-                    if "no record found" in rs.error_msg.lower() or rs.error_code == '10002':
-                        raise NoDataFoundError(
-                            f"No basic info found for {code}. Baostock msg: {rs.error_msg}")
-                    else:
-                        raise DataSourceError(
-                            f"Baostock API error fetching basic info: {rs.error_msg} (code: {rs.error_code})")
-
-                # 收集数据行
-                data_list = []
-                while rs.next():
-                    data_list.append(rs.get_row_data())
-
-                # 检查空结果
-                if not data_list:
-                    logger.warning(
-                        f"No basic info found for {code} (empty result set from Baostock).")
+                # 区分无数据和API错误
+                if "no record found" in rs.error_msg.lower() or rs.error_code == '10002':
                     raise NoDataFoundError(
-                        f"No basic info found for {code} (empty result set).")
+                        f"No basic info found for {code}. Baostock msg: {rs.error_msg}")
+                else:
+                    raise DataSourceError(
+                        f"Baostock API error fetching basic info: {rs.error_msg} (code: {rs.error_code})")
 
-                # 转换为DataFrame
-                result_df = pd.DataFrame(data_list, columns=rs.fields)
-                logger.info(
-                    f"Retrieved basic info for {code}. Columns: {result_df.columns.tolist()}")
+            # 收集数据行
+            data_list = []
+            while rs.next():
+                data_list.append(rs.get_row_data())
 
-                # 如果用户指定了字段，则筛选返回的列
-                if fields:
-                    # 找出用户请求的字段中实际存在的列
-                    available_cols = [
-                        col for col in fields if col in result_df.columns]
+            # 检查空结果
+            if not data_list:
+                logger.warning(
+                    f"No basic info found for {code} (empty result set from Baostock).")
+                raise NoDataFoundError(
+                    f"No basic info found for {code} (empty result set).")
+
+            # 转换为DataFrame
+            result_df = pd.DataFrame(data_list, columns=rs.fields)
+            logger.info(
+                f"Retrieved basic info for {code}. Columns: {result_df.columns.tolist()}")
+
+            # 如果用户指定了字段，则筛选返回的列
+            if fields:
+                # 找出用户请求的字段中实际存在的列
+                available_cols = [
+                    col for col in fields if col in result_df.columns]
                     
-                    # 如果用户请求的字段都不存在，则报错
-                    if not available_cols:
-                        raise ValueError(
-                            f"None of the requested fields {fields} are available in the basic info result.")
+                # 如果用户请求的字段都不存在，则报错
+                if not available_cols:
+                    raise ValueError(
+                        f"None of the requested fields {fields} are available in the basic info result.")
                     
-                    logger.debug(
-                        f"Selecting columns: {available_cols} from basic info for {code}")
-                    result_df = result_df[available_cols]
+                logger.debug(
+                    f"Selecting columns: {available_cols} from basic info for {code}")
+                result_df = result_df[available_cols]
 
-                return result_df
+            return result_df
 
         except (LoginError, NoDataFoundError, DataSourceError, ValueError) as e:
             # 已知异常重新抛出

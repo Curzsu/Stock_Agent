@@ -21,6 +21,7 @@ async def generate_summary(llm, messages, execution_logger, model_config):
         instruction = (
             f"篇幅要求：正文控制在 {target_chars} 个中文字符以内。保留要求的章节，"
             "每节只写关键结论和必要数据，避免重复四份原始分析；"
+            "压缩时仍保留关键指标和术语的加粗，以及摘要引用、指标表和简短列表，勿压成连续段落；"
             "必须完成风险、建议和分析基准时间后正常结束。"
         )
         if attempt > 1:

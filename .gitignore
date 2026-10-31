@@ -87,6 +87,10 @@ htmlcov/
 # ========================================
 node_modules/
 .worktrees/
+.tools/
+.runtime/
+tmp/pdfs/
+output/pdf/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

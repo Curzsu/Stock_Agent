@@ -1,0 +1,163 @@
+% FINEX crayon notebook theme; the upstream Eisvogel template stays unmodified.
+\usepackage{tikz}
+\usetikzlibrary{calc,shapes.geometric,decorations.pathmorphing}
+\usepackage{etoolbox}
+\usepackage{fvextra}
+\usepackage{newunicodechar}
+\usepackage{needspace}
+\definecolor{FinexInk}{HTML}{3F3A36}
+\definecolor{FinexMuted}{HTML}{917D6D}
+\definecolor{FinexCream}{HTML}{FFF8EF}
+\definecolor{FinexPeach}{HTML}{F7D9C4}
+\definecolor{FinexClay}{HTML}{B85F48}
+\definecolor{FinexSage}{HTML}{C9D9BC}
+\definecolor{FinexSageDark}{HTML}{53785C}
+\definecolor{FinexLilac}{HTML}{DCD2E9}
+\definecolor{FinexHoney}{HTML}{F1CE78}
+\definecolor{FinexBlue}{HTML}{5578C4}
+\definecolor{FinexMint}{HTML}{A9DCC5}
+\definecolor{FinexPaper}{HTML}{FFFCF6}
+
+% Local handwritten faces for headings. Portable fonts remain available as a
+% fallback through the same TeX installation/bundle used by the body fonts.
+\IfFontExistsTF{KaiTi}{%
+  \newCJKfontfamily\FinexHandCJK[AutoFakeBold=1.5]{KaiTi}%
+}{\newCJKfontfamily\FinexHandCJK[AutoFakeBold=1.5]{FandolKai-Regular.otf}}
+\IfFontExistsTF{Comic Sans MS}{%
+  \newfontfamily\FinexHandLatin{Comic Sans MS}%
+}{\newfontfamily\FinexHandLatin{texgyreheros-italic.otf}}
+\newcommand{\FinexHand}{\FinexHandLatin\FinexHandCJK}
+\DeclareRobustCommand{\FinexHandText}[1]{{\FinexHand #1}}
+% A rounded face makes the large cover title feel playful rather than calligraphic.
+\IfFontExistsTF{YouYuan}{%
+  \newCJKfontfamily\FinexCoverCJK[AutoFakeBold=2]{YouYuan}%
+}{\newCJKfontfamily\FinexCoverCJK[AutoFakeBold=2]{FandolHei-Regular.otf}}
+\DeclareRobustCommand{\FinexCoverText}[1]{{\FinexHandLatin\FinexCoverCJK #1}}
+\AtBeginEnvironment{titlepage}{%
+  \let\textsf\FinexCoverText
+  % Keep the stronger cover hierarchy local to the title page.
+  \renewcommand{\huge}{\fontsize{36}{44}\selectfont}% company name
+  \renewcommand{\Large}{\fontsize{20}{28}\selectfont}% subtitle, author and date
+}
+\tikzset{finex pencil/.style={decorate,decoration={random steps,segment length=3pt,amplitude=.35pt},line cap=round,line join=round}}
+
+% Common report markers use portable vector/math glyphs instead of emoji fonts.
+\newcommand{\FinexWarning}{\tikz[baseline=-.2ex,x=1em,y=1em]{%
+  \draw[FinexClay,fill=FinexHoney!35,rounded corners=.5pt,line width=.5pt]
+    (0,0)--(.85,0)--(.425,.74)--cycle;
+  \node[text=FinexInk,font=\tiny\bfseries,inner sep=0pt] at (.425,.27) {!};}}
+\newcommand{\FinexFace}[1]{\tikz[baseline=-.4ex,x=1em,y=1em]{%
+  \fill[FinexHoney] (0,0) circle (.42);
+  \fill[FinexInk] (-.14,.08) circle (.025);
+  \fill[FinexInk] (.14,.08) circle (.025);
+  \draw[FinexInk,line width=.4pt] (-.15,-.14) .. controls (0,#1) .. (.15,-.14);}}
+\newcommand{\FinexStar}[1]{\tikz[baseline=-.3ex]{%
+  \node[star,star points=5,star point ratio=2.2,draw=FinexClay!75,
+    fill=#1,minimum size=1em,inner sep=0pt,line width=.4pt] {};}}
+\newunicodechar{★}{\FinexStar{FinexHoney}}
+\newunicodechar{☆}{\FinexStar{white}}
+\newunicodechar{✅}{\textcolor{FinexSageDark}{\ensuremath{\checkmark}}}
+\newunicodechar{✓}{\textcolor{FinexSageDark}{\ensuremath{\checkmark}}}
+\newunicodechar{❌}{\textcolor{FinexClay}{\ensuremath{\times}}}
+\newunicodechar{✗}{\textcolor{FinexClay}{\ensuremath{\times}}}
+\newunicodechar{⚠}{\FinexWarning}
+\newunicodechar{🟢}{\textcolor{FinexSageDark}{\ensuremath{\bullet}}}
+\newunicodechar{🔴}{\textcolor{FinexClay}{\ensuremath{\bullet}}}
+\newunicodechar{🟡}{\textcolor{FinexHoney!65!FinexInk}{\ensuremath{\bullet}}}
+\newunicodechar{📈}{\textcolor{FinexSageDark}{\ensuremath{\nearrow}}}
+\newunicodechar{😟}{\FinexFace{-.02}}
+\newunicodechar{😐}{\FinexFace{-.14}}
+\newunicodechar{😊}{\FinexFace{-.3}}
+\newunicodechar{🤝}{\textcolor{FinexSageDark}{[协作]}}
+\newunicodechar{🔥}{\textcolor{FinexClay}{[热度]}}
+% Ignore the emoji/text presentation selector (U+FE0F), not the marker itself.
+\newunicodechar{️}{}
+
+\AtBeginDocument{%
+  \color{FinexInk}
+  \definecolor{heading-color}{HTML}{B85F48}
+  \definecolor{blockquote-border}{HTML}{A9DCC5}
+  \definecolor{blockquote-text}{HTML}{705B4B}
+  \definecolor{table-row-color}{HTML}{FFF3E5}
+  \definecolor{table-rule-color}{HTML}{89A4D9}
+  \addtokomafont{section}{\FinexHand\color{FinexClay}\Large}
+  \addtokomafont{subsection}{\FinexHand\color{FinexBlue}\normalsize}
+  \addtokomafont{subsubsection}{\FinexHand\color{FinexSageDark}\normalsize}
+  \setkomafont{pageheadfoot}{\FinexHand\scriptsize\color{FinexMuted}}
+  \KOMAoptions{headsepline=false,footsepline=false}
+  \pagecolor{FinexPaper}
+  % Eisvogel loads mdframed after this header, so define panels at document start.
+  \newmdenv[backgroundcolor=FinexMint!16!white,linecolor=FinexSageDark!45,
+    linewidth=.7pt,roundcorner=8pt,skipabove=8pt,skipbelow=12pt,
+    innertopmargin=10pt,innerbottommargin=10pt,innerleftmargin=12pt,innerrightmargin=12pt,
+    frametitle={\FinexHand\color{FinexSageDark}研究速览},frametitleaboveskip=8pt,
+    frametitlebelowskip=6pt]{FinexSummary}
+  \newmdenv[backgroundcolor=FinexPeach!28!white,linecolor=FinexClay!55,
+    linewidth=.7pt,roundcorner=8pt,skipabove=8pt,skipbelow=12pt,
+    innertopmargin=10pt,innerbottommargin=10pt,innerleftmargin=12pt,innerrightmargin=12pt,
+    frametitle={\FinexHand\color{FinexClay}风险备忘},frametitleaboveskip=8pt,
+    frametitlebelowskip=6pt]{FinexRisk}
+  \AtBeginEnvironment{longtable}{\rowcolors{2}{FinexHoney!16!white}{FinexMint!13!white}}
+  \renewcommand*{\sectionformat}{%
+    \tikz[baseline=(badge.base)]{%
+      \node[fill=FinexHoney!65!white,text=FinexInk,inner xsep=7pt,
+        inner ysep=3pt,font=\FinexHandLatin\small\bfseries](badge){\thesection};
+      \draw[FinexInk!80,line width=.55pt,finex pencil]
+        ($(badge.south west)+(-.5pt,.5pt)$) rectangle ($(badge.north east)+(.5pt,-.5pt)$);
+      \draw[FinexBlue!60,line width=.6pt,finex pencil]
+        ($(badge.south west)+(1pt,-2pt)$)--($(badge.south east)+(2pt,-1pt)$);
+    }\enskip}
+  \RedeclareSectionCommand[beforeskip=1.4\baselineskip,afterskip=.55\baselineskip]{section}
+  \RedeclareSectionCommand[beforeskip=1.0\baselineskip,afterskip=.3\baselineskip]{subsection}
+  \setlength{\emergencystretch}{3em}
+  \fvset{breaklines=true,breakanywhere=true,fontsize=\small}
+}
+
+% Hand-drawn notebook details sit in the margins, outside the reading area.
+% Count physical pages because Eisvogel resets its page counter after the cover.
+\newcounter{FinexPhysicalPage}
+\AddToHook{shipout/before}{\stepcounter{FinexPhysicalPage}}
+\AddToHook{shipout/background}{%
+  \ifnum\value{FinexPhysicalPage}>1
+    \begin{tikzpicture}[remember picture,overlay,x=1cm,y=1cm]
+      \coordinate (origin) at (current page.south west);
+      \begin{scope}[shift={(origin)}]
+        \pgfmathsetseed{\value{FinexPhysicalPage}}
+        \draw[FinexMint!50!white,line width=2.1pt,finex pencil]
+          (2.3,27.83)--(18.65,27.80);
+        \draw[FinexBlue!65!white,line width=.55pt,finex pencil]
+          (2.3,27.82)--(18.68,27.81);
+        \draw[FinexPeach!70!white,line width=1.9pt,finex pencil]
+          (2.3,1.22)--(18.7,1.24);
+        \draw[FinexClay!50!white,line width=.4pt,finex pencil]
+          (2.3,1.21)--(18.7,1.23);
+        % Small crayon hatching at the outer edges, away from tables and prose.
+        \foreach \offset in {0,.11,.22,.33}{
+          \draw[FinexLilac!60!white,line width=2.4pt,finex pencil]
+            (.45+\offset,25.95)--(.83+\offset,26.35);
+          \draw[FinexMint!60!white,line width=2.2pt,finex pencil]
+            (19.7+\offset,3.0)--(20.02+\offset,3.52);
+        }
+        \node[star,star points=5,star point ratio=2.2,draw=FinexHoney!80!FinexClay,
+          line width=.65pt,rotate=13,minimum size=.42cm,inner sep=0pt]
+          at (19.85,26.9) {};
+        \draw[FinexBlue!55!white,line width=.7pt,finex pencil]
+          (.75,1.9) .. controls (1.5,2.15) and (.8,2.45) .. (1.4,2.55);
+      \end{scope}
+    \end{tikzpicture}%
+  \fi
+}
+
+% The cover artwork is painted by Eisvogel. These labels stay sharp and editable.
+\AddToHook{shipout/foreground}{%
+  \ifnum\value{FinexPhysicalPage}=1
+    \begin{tikzpicture}[remember picture,overlay]
+      \node[anchor=west,text=FinexInk,font=\FinexHandLatin\bfseries\fontsize{32}{38}\selectfont]
+        at ($(current page.south west)+(3.5cm,25.9cm)$) {FINEX};
+      \node[anchor=west,text=FinexMuted,font=\FinexHandLatin\fontsize{13}{17}\selectfont]
+        at ($(current page.south west)+(3.5cm,25.1cm)$) {RESEARCH, WITH A LITTLE WARMTH};
+      \draw[FinexBlue!70,line width=1.8pt,finex pencil]
+        ($(current page.south west)+(3.5cm,24.65cm)$)--($(current page.south west)+(7.7cm,24.7cm)$);
+    \end{tikzpicture}%
+  \fi
+}

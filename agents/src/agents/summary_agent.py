@@ -196,13 +196,27 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
     # 记录 Agent开始时间，用于计算执行时长
     agent_start_time = time.time()
 
+    available = {}
+    for dimension in ("fundamental", "technical", "value", "news"):
+        key = f"{dimension}_analysis"
+        if current_data.get(f"{key}_error"):
+            continue
+        try:
+            text = require_analysis_text(current_data.get(key))
+        except ValueError:
+            continue
+        available[key] = text
+    if not available:
+        error = "四路分析均未获得有效结果，已停止生成汇总报告。请先重试分析，不能基于常识推演代替真实数据。"
+        current_data["summary_error"] = error
+        execution_logger.log_agent_complete(agent_name, current_data, time.time() - agent_start_time, False, error)
+        return {"data": current_data, "messages": messages}
+
     # 获取之前 Agent的分析结果
-    fundamental_analysis = current_data.get(
-        "fundamental_analysis", "Not available")
-    technical_analysis = current_data.get(
-        "technical_analysis", "Not available")
-    value_analysis = current_data.get("value_analysis", "Not available")
-    news_analysis = current_data.get("news_analysis", "Not available")
+    fundamental_analysis = available.get("fundamental_analysis", "Not available")
+    technical_analysis = available.get("technical_analysis", "Not available")
+    value_analysis = available.get("value_analysis", "Not available")
+    news_analysis = available.get("news_analysis", "Not available")
 
     # 处理各个分析的错误信息
     errors = []
@@ -252,7 +266,8 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         4. 新闻分析 - 关注市场情绪、重要事件和媒体报道对股价的影响
 
         请创建一份结构清晰、内容连贯的报告，整合所有四种分析的见解。
-        即使某些分析数据不完整或缺失，也请基于可用信息提供最佳的综合分析。
+        只依据下方成功取得的分析及其数据生成结论。缺失的维度明确标注“数据缺失”，
+        不得用常态认知、训练记忆或通用财务逻辑推演补齐，不得编造价格、指标或目标价。
 
         **严格遵循以下报告格式和结构：**
         
@@ -289,6 +304,15 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         [说明数据来源，以及分析过程中遇到的任何数据限制或缺失]
 
         输出必须是有效的Markdown格式，使用适当的标题、项目符号和格式。
+        正文排版要求：
+        - 重要指标、金融术语及对应关键数值使用 **加粗**，例如 **ROE** 为 **6.75%**；
+          仅强调关键内容，不要整段加粗，也不要把日期、来源或所有数字都加粗。
+        - 执行摘要使用一段简短的 Markdown 引用（>），突出核心结论。
+        - 有已取得的量化数据时，用“指标 | 数值 | 解读”表格展示3至5项关键指标；
+          无可靠数据时明确说明缺失，不为了排版编造指标、评分或目标价。
+        - 基本面、估值和投资建议优先使用“- **观察项：** 数据与解读”的有标签列表，
+          技术面与新闻使用简短要点，风险因素使用有序列表；避免连续长段落。
+        - 每个章节选择适合内容的形式，表格与正文不要重复同一组数据；来源与时间基准保留。
         不要包含任何代码块标记，如```markdown或```，直接输出纯Markdown内容。
         
         使用专业的金融语言，但保持可读性。报告应该全面且深入，包含足够的细节和数据支持，

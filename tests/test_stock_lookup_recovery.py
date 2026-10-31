@@ -3,6 +3,7 @@ import asyncio
 import socket
 import sys
 import threading
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -14,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "agents"))
 
 from backend import server
-from src.utils import baostock_helper as helper
+from finex_data import baostock_runtime as helper
 
 
 def result(rows=(), error_code="0", error_msg="success"):
@@ -36,6 +37,8 @@ def result(rows=(), error_code="0", error_msg="success"):
 class TestConnectionRecovery(unittest.TestCase):
     def setUp(self):
         import baostock.common.context as context
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
         self.socket = Mock()
         self.bs = Mock(login=Mock(return_value=result()))
         for target, name, value in (
@@ -46,6 +49,9 @@ class TestConnectionRecovery(unittest.TestCase):
             patcher = patch.object(target, name, value, create=True)
             patcher.start()
             self.addCleanup(patcher.stop)
+        environment = patch.dict("os.environ", {"FINEX_BAOSTOCK_STATE_DIR": directory.name})
+        environment.start()
+        self.addCleanup(environment.stop)
 
     def test_network_error_reconnects_and_repeats_read_once(self):
         query = Mock(side_effect=[result(error_code="10002007"), result([["sh.600900", "长江电力"]])])
@@ -157,12 +163,16 @@ class TestConnectionRecovery(unittest.TestCase):
         self.assertEqual(query.call_count, 2)
 
     def test_recovery_does_not_start_after_query_budget_is_exhausted(self):
+        clock = [0.0]
         def slow_failure():
-            time.sleep(0.06)
+            # Advance a controlled clock after the query starts; Windows login /
+            # logging overhead must not exhaust a 30ms budget before this point.
+            clock[0] = 0.06
             raise ConnectionResetError("slow failure")
 
         query = Mock(side_effect=slow_failure)
-        with patch.object(helper, "BAOSTOCK_SOCKET_TIMEOUT", 0.03):
+        with patch.object(helper, "BAOSTOCK_SOCKET_TIMEOUT", 0.03), \
+             patch.object(helper.time, "monotonic", side_effect=lambda: clock[0]):
             with self.assertRaises(RuntimeError):
                 helper.safe_query(query)
         self.assertEqual(query.call_count, 1)
@@ -172,22 +182,18 @@ class TestConnectionRecovery(unittest.TestCase):
 class TestStockLookup(unittest.TestCase):
     def test_name_lookup_filters_on_server_and_keeps_exact_match(self):
         rows = [["sh.600901", "长江电力测试"], ["sh.600900", "长江电力"]]
-        with patch.object(helper, "ensure_logged_in"), \
-             patch.object(server, "ensure_logged_in"), \
-             patch.object(server, "safe_query", side_effect=lambda fn: fn()), \
+        with patch.object(server, "safe_query", side_effect=lambda fn: fn()), \
              patch.object(server.bs, "query_stock_basic", return_value=result(rows)) as query:
             self.assertEqual(server.lookup_stock_code_by_name("长江电力"), ("600900", "长江电力"))
         query.assert_called_once_with(code_name="长江电力")
 
     def test_name_lookup_does_not_turn_service_error_into_unknown_company(self):
-        with patch.object(server, "ensure_logged_in"), \
-             patch.object(server, "safe_query", return_value=result(error_code="10002007")):
+        with patch.object(server, "safe_query", return_value=result(error_code="10002007")):
             with self.assertRaisesRegex(RuntimeError, "baostock"):
                 server.lookup_stock_code_by_name("长江电力")
 
     def test_verify_does_not_turn_service_error_into_delisted_stock(self):
-        with patch.object(server, "ensure_logged_in"), \
-             patch.object(server, "safe_query", return_value=result(error_code="10002007")):
+        with patch.object(server, "safe_query", return_value=result(error_code="10002007")):
             with self.assertRaisesRegex(RuntimeError, "baostock"):
                 server.verify_stock_code_exists("sh.600900")
 
@@ -200,6 +206,20 @@ class TestStockLookup(unittest.TestCase):
         self.assertEqual(session.status, "error")
         self.assertIn("行情数据服务", session.error)
         self.assertNotIn("未找到", session.error)
+        self.assertIsNotNone(session.end_time)
+        build.assert_not_called()
+
+    def test_blacklist_message_explains_pause_instead_of_suggesting_retry(self):
+        session = server.AnalysisStatus(analysis_id="blocked", status="pending", progress={})
+        error = helper.BaostockBlacklistedError(time.time() + 21600)
+        with patch.dict(server.analysis_sessions, {"blocked": session}), \
+             patch.object(server, "lookup_stock_code_by_name", side_effect=error), \
+             patch.object(server, "build_workflow") as build:
+            asyncio.run(server.run_analysis_workflow("blocked", "长江电力"))
+        self.assertEqual(session.status, "error")
+        self.assertIn("访问已暂停", session.error)
+        self.assertNotIn("请稍后重试", session.error)
+        self.assertIn("blacklist", session.error)
         self.assertIsNotNone(session.end_time)
         build.assert_not_called()
 
