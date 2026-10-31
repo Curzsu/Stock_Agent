@@ -94,8 +94,9 @@
     return { partial, result: false };
   }
 
-  function canRetryAgent(payload = {}, agentStatus = 'waiting') {
-    const terminal = payload.status === 'completed' || payload.status === 'degraded';
+  function canRetryAgent(payload = {}, agentStatus = 'waiting', agentKey = '') {
+    const terminal = payload.status === 'completed' || payload.status === 'degraded'
+      || (payload.status === 'error' && agentKey === 'summary');
     return terminal && !hasRunningAgents(payload) && agentStatus === 'failed';
   }
 
@@ -217,7 +218,7 @@
         const summary = agentSummaryForStatus(key, { ...detail, status });
         setText(card.querySelector('.agent-summary'), summary);
         const retry = card.querySelector('.agent-retry');
-        if (retry) retry.hidden = !canRetryAgent(payload, status);
+        if (retry) retry.hidden = !canRetryAgent(payload, status, key);
       });
       setText(completedCount, `${completed} / 5 已完成`);
     }

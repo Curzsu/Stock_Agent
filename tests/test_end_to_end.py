@@ -292,6 +292,32 @@ class TestEndToEnd(unittest.TestCase):
                 self.assertIn("summary_error", result["data"])
                 self.assertIsNone(result["data"].get("pdf_path"))
 
+    def test_summary_recovers_from_length_without_repeating_analysts(self):
+        from src.agents.summary_agent import summary_agent
+        responses = [
+            AIMessage(content="unfinished", response_metadata={"finish_reason": "length"}),
+            AIMessage(content="# 综合报告\n\n完整报告。", response_metadata={"finish_reason": "stop"}),
+        ]
+        calls = []
+
+        async def invoke(messages):
+            calls.append(messages)
+            return responses[len(calls) - 1]
+
+        patchers, _ = _patch_summary()
+        try:
+            with patch("langchain_openai.ChatOpenAI") as factory:
+                factory.return_value.ainvoke = invoke
+                result = asyncio.run(summary_agent(_make_initial_state()))
+                self.assertGreater(factory.call_args.kwargs["max_tokens"], 5000)
+        finally:
+            for patcher in patchers:
+                patcher.stop()
+        self.assertNotIn("summary_error", result["data"])
+        self.assertIn("完整报告", result["data"]["final_report"])
+        self.assertEqual(len(calls), 2)
+        self.assertIn("压缩", calls[1][-1]["content"])
+
     def test_summary_rejects_truncated_or_unfinished_ai_messages(self):
         from src.agents.summary_agent import summary_agent
         from langchain_core.messages import HumanMessage

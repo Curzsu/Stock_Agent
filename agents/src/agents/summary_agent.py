@@ -13,7 +13,8 @@ from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAI
 from src.utils.execution_logger import get_execution_logger
 from src.utils.pdf_converter import generate_pdf_background
 from src.utils.agent_config import REACT_TIMEOUT_SECONDS
-from src.utils.agent_output import extract_analysis_text, require_analysis_text
+from src.utils.agent_output import require_analysis_text
+from src.utils.summary_generation import generate_summary, summary_max_tokens
 from dotenv import load_dotenv
 
 # 从.env文件加载环境变量
@@ -174,7 +175,9 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
     agent_name = "summary_agent"
 
     # 从状态中提取当前数据、消息和用户查询
-    current_data = state.get("data", {})
+    current_data = dict(state.get("data", {}))
+    for key in ("summary_error", "final_report", "report_path", "pdf_path"):
+        current_data.pop(key, None)
     messages = state.get("messages", [])
     user_query = current_data.get("query", "")
 
@@ -381,7 +384,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
             model_config = {
                 "model": model_name,
                 "temperature": 0.3,
-                "max_tokens": 5000,
+                "max_tokens": summary_max_tokens(),
                 "api_base": base_url
             }
 
@@ -401,7 +404,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
                 api_key=api_key,
                 base_url=base_url,
                 temperature=0.3,  # 保持一致性和稳定性
-                max_tokens=5000   # 增大输出长度以生成更详细的综合报告
+                max_tokens=model_config["max_tokens"]
             )
 
             # 记录LLM交互开始时间
@@ -411,24 +414,24 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
             # 用 asyncio.wait_for 加超时（与 4 个分析 Agent 一致），防止 LLM API
             # 挂起/连接被丢弃时永久等待。超时后抛 TimeoutError，由下方 except
             # 分支降级生成错误报告，保证工作流能正常结束而非永久卡住。
-            llm_message = await asyncio.wait_for(
-                llm.ainvoke(summary_prompt_messages),
+            final_report = await asyncio.wait_for(
+                generate_summary(llm, summary_prompt_messages, execution_logger, model_config),
                 timeout=REACT_TIMEOUT_SECONDS
             )
-            final_report = extract_analysis_text({"messages": [llm_message]})
 
             # 记录LLM交互执行时间
             llm_execution_time = time.time() - llm_start_time
 
         # 记录LLM交互详情，用于后续分析和优化
-        execution_logger.log_llm_interaction(
-            agent_name=agent_name,
-            interaction_type="summary_generation",
-            input_messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            output_content=final_report,
-            model_config=model_config,
-            execution_time=llm_execution_time
-        )
+        if model_choice == "local":
+            execution_logger.log_llm_interaction(
+                agent_name=agent_name,
+                interaction_type="summary_generation",
+                input_messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                output_content=final_report,
+                model_config=model_config,
+                execution_time=llm_execution_time
+            )
 
         # 移除任何可能出现的markdown代码块标记
         final_report = final_report.replace(
