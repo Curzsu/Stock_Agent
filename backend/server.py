@@ -266,7 +266,7 @@ def finish_analysis_session(session) -> None:
     summary = session.agent_details["summary"]
     if summary["status"] == "failed":
         session.status = "error"
-        session.error = f"汇总报告生成失败，请重新发起分析：{summary['error']}"
+        session.error = f"汇总报告生成失败，可重试汇总（已完成的分析会保留）：{summary['error']}"
     else:
         session.status = "degraded" if any(
             session.agent_details[key]["status"] == "failed"
@@ -293,26 +293,32 @@ async def retry_agent_and_summary(
 ) -> None:
     """Rerun one failed dimension, then rebuild the synthesis in place."""
     session = analysis_sessions[analysis_id]
-    agent_fn = selected_agent or RETRYABLE_AGENTS[agent_key]
     summary_fn = summarizer or summary_agent
     active_agent = agent_key
     try:
-        state = AgentState(
-            messages=[],
-            data={**session.initial_data, **session.partial_results},
-            metadata={"analysis_id": analysis_id, "retry": agent_key},
-        )
-        if session.agent_details[agent_key]["status"] != "running":
-            mark_agent_status(session, agent_key, "running")
-        agent_result = await agent_fn(state)
-        record_agent_result(session, agent_key, agent_result)
-        if session.agent_details[agent_key]["status"] == "failed":
-            finish_analysis_session(session)
-            return
+        if agent_key != "summary":
+            agent_fn = selected_agent or RETRYABLE_AGENTS[agent_key]
+            state = AgentState(
+                messages=[],
+                data={**session.initial_data, **session.partial_results},
+                metadata={"analysis_id": analysis_id, "retry": agent_key},
+            )
+            if session.agent_details[agent_key]["status"] != "running":
+                mark_agent_status(session, agent_key, "running")
+            agent_result = await agent_fn(state)
+            record_agent_result(session, agent_key, agent_result)
+            if session.agent_details[agent_key]["status"] == "failed":
+                finish_analysis_session(session)
+                return
 
+        summary_data = {**session.initial_data, **session.partial_results}
+        for key in RETRYABLE_AGENTS:
+            detail = session.agent_details[key]
+            if detail["status"] == "failed":
+                summary_data[AGENT_RESULT_KEYS[key][1]] = detail["error"] or "分析不可用"
         summary_state = AgentState(
             messages=[],
-            data={**session.initial_data, **session.partial_results},
+            data=summary_data,
             metadata={"analysis_id": analysis_id, "retry": agent_key},
         )
         active_agent = "summary"
@@ -739,12 +745,12 @@ async def get_partial_results(analysis_id: str):
 @app.post("/api/analysis/{analysis_id}/retry/{agent_key}", status_code=202)
 async def retry_failed_agent(analysis_id: str, agent_key: str):
     """Schedule a retry for one failed analysis dimension."""
-    if agent_key not in RETRYABLE_AGENTS:
-        raise HTTPException(status_code=422, detail="Only analysis dimensions can be retried")
+    if agent_key not in {*RETRYABLE_AGENTS, "summary"}:
+        raise HTTPException(status_code=422, detail="Unknown analysis agent")
     session = analysis_sessions.get(analysis_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
-    if session.status not in {"completed", "degraded"}:
+    if session.status not in {"completed", "degraded", "error"}:
         raise HTTPException(status_code=409, detail="Wait for the current workflow to finish before retrying")
     if any(
         detail.get("status") == "running"
@@ -753,9 +759,18 @@ async def retry_failed_agent(analysis_id: str, agent_key: str):
         raise HTTPException(status_code=409, detail="Another analysis task is still running")
     if session.agent_details[agent_key]["status"] != "failed":
         raise HTTPException(status_code=409, detail="This analysis dimension is not failed")
+    if agent_key == "summary" and (
+        not session.initial_data or not session.partial_results or any(
+            session.agent_details[key]["status"] not in {"completed", "failed"}
+            for key in RETRYABLE_AGENTS
+        )
+    ):
+        raise HTTPException(status_code=409, detail="Analysis fragments are not ready for synthesis")
 
     mark_agent_status(session, agent_key, "running")
     session.status = "running"
+    session.error = None
+    session.end_time = None
     asyncio.create_task(retry_agent_and_summary(analysis_id, agent_key))
     return {"analysis_id": analysis_id, "agent": agent_key, "status": "retrying"}
 

@@ -2151,6 +2151,7 @@
                 <div><div class="agent-card-title"><span class="agent-monogram">综</span><div><h3>综合研判</h3><p>交叉验证 · 核心结论 · 风险边界</p></div></div><p class="agent-summary">四路研究完成后，将在此生成综合结论。</p></div>
                 <div class="agent-microchart agent-summary-chart" aria-hidden="true"><div class="synthesis-core">FINEX</div><span class="orbit-node node-one"></span><span class="orbit-node node-two"></span><span class="orbit-node node-three"></span><span class="orbit-node node-four"></span></div>
               </div>
+              <button class="agent-retry" type="button" hidden>重试汇总</button>
             </article>
           </div>
         </main>
@@ -2747,7 +2748,7 @@
           card.addEventListener('click', () => {
             if (isRunning) {
               resumeAnalysis(item.analysis_id, item.company_name || item.stock_code || '分析中');
-            } else if (!isError) {
+            } else {
               viewCompletedReport(item.analysis_id);
             }
           });
@@ -2845,6 +2846,17 @@
         if (currentMarketCode) loadWorkbenchMarket(currentMarketFrequency);
         if (statusData && window.FinexWorkbench.hasRunningAgents(statusData)) {
           pollAnalysisStatus();
+          return;
+        }
+        if (statusData && statusData.status === 'error') {
+          const partialRes = await fetch(`${API_BASE}/analysis/${analysisId}/partial`);
+          if (viewVersion !== _analysisViewVersion) return;
+          if (partialRes.ok) {
+            const partialData = await partialRes.json();
+            if (viewVersion !== _analysisViewVersion) return;
+            workbench.updatePartialResults(partialData.results || {});
+          }
+          workbench.renderError(statusData.error || '分析未完成');
           return;
         }
         await loadCompletedReport(statusData || { status: 'completed' }, false);
@@ -3120,7 +3132,7 @@
         _analysisViewVersion++;
         resetReportLoading();
         _completionHandled = false;
-        previousProgress = { ...previousProgress, [agentKey]: 'running', summary: 'waiting' };
+        previousProgress = { ...previousProgress, summary: 'waiting', [agentKey]: 'running' };
         pollAnalysisStatus();
       } catch (error) {
         if (viewVersion !== _analysisViewVersion) return;

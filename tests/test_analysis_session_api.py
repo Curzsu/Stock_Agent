@@ -157,7 +157,36 @@ class TestAnalysisSessionApi(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
 
         response = self.client.post("/api/analysis/session1/retry/summary")
-        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.status_code, 409)
+
+    def test_summary_retry_reuses_partial_results(self):
+        self.session.status = "error"
+        self.session.error = "summary failed"
+        for key in ("fundamental", "technical", "value", "news"):
+            self.session.agent_details[key]["status"] = "completed"
+            self.session.progress[key] = "completed"
+            self.session.partial_results[server.AGENT_RESULT_KEYS[key][0]] = key + " result"
+        self.session.agent_details["summary"]["status"] = "failed"
+        self.session.progress["summary"] = "failed"
+        before = dict(self.session.partial_results)
+        with patch.object(server, "retry_agent_and_summary", new=AsyncMock()) as retry:
+            response = self.client.post("/api/analysis/session1/retry/summary")
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(self.session.status, "running")
+        self.assertIsNone(self.session.error)
+        self.assertEqual(self.session.partial_results, before)
+
+        async def summary(state):
+            self.assertEqual(state["data"]["news_analysis"], "news result")
+            return {"data": {"final_report": "成功汇总"}}
+
+        analyst = AsyncMock(side_effect=AssertionError("must not rerun analyst"))
+        asyncio.run(server.retry_agent_and_summary(
+            "session1", "summary", selected_agent=analyst, summarizer=summary,
+        ))
+        analyst.assert_not_called()
+        self.assertEqual(self.session.status, "completed")
+        self.assertEqual(self.session.result["final_report"], "成功汇总")
 
     def test_retry_rejects_parallel_agent_runs(self):
         self.session.status = "degraded"
@@ -165,6 +194,21 @@ class TestAnalysisSessionApi(unittest.TestCase):
         self.session.agent_details["value"]["status"] = "running"
         response = self.client.post("/api/analysis/session1/retry/news")
         self.assertEqual(response.status_code, 409)
+
+    def test_summary_retry_rejects_incomplete_fragments_and_unknown_agents(self):
+        self.session.status = "error"
+        self.session.agent_details["summary"]["status"] = "failed"
+        self.assertEqual(self.client.post("/api/analysis/session1/retry/summary").status_code, 409)
+        self.assertEqual(self.client.post("/api/analysis/session1/retry/unknown").status_code, 422)
+
+    def test_summary_only_retry_preserves_missing_dimension_warning(self):
+        self.session.agent_details["news"].update(status="failed", error="news unavailable")
+        async def summary(state):
+            self.assertEqual(state["data"]["news_analysis_error"], "news unavailable")
+            return {"data": {"final_report": "部分数据缺失的综合报告"}}
+        asyncio.run(server.retry_agent_and_summary("session1", "summary", summarizer=summary))
+        self.assertEqual(self.session.status, "degraded")
+        self.assertEqual(self.session.result["missing_dimensions"], ["news"])
 
     def test_retry_helper_replaces_failed_dimension_and_reruns_summary(self):
         import asyncio

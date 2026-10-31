@@ -142,6 +142,14 @@ test('retry actions are enabled only when the session is terminal and idle', () 
   assert.equal(canRetryAgent({ status: 'degraded', progress: { value: 'failed' } }, 'failed'), true);
 });
 
+test('failed synthesis can be retried without restarting completed analysis', () => {
+  assert.equal(canRetryAgent({ status: 'error', progress: { summary: 'failed' } }, 'failed', 'summary'), true);
+  assert.equal(canRetryAgent({ status: 'error', progress: { summary: 'running' } }, 'failed', 'summary'), false);
+  const source = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const summaryCard = source.slice(source.indexOf('data-agent="summary"'), source.indexOf('data-agent="summary"') + 2200);
+  assert.match(summaryCard, /class="agent-retry"/);
+});
+
 test('resolveChartSize supplies a visible fallback while the workbench is hidden', () => {
   assert.deepEqual(resolveChartSize(0, 0), { width: 640, height: 430 });
   assert.deepEqual(resolveChartSize(360, 500), { width: 360, height: 500 });
@@ -457,6 +465,24 @@ function navigationHarness() {
   vm.runInContext(html.slice(poll, html.indexOf('    function startFallbackPolling()', poll)), context);
   return harness;
 }
+
+test('opening failed synthesis restores partials without fetching a failed final report', async () => {
+  const { context, rendered, errors } = navigationHarness();
+  const requests = [];
+  const partials = [];
+  context.workbench.updatePartialResults = (data) => partials.push(data);
+  context.fetch = async (url) => {
+    requests.push(url);
+    return { ok: true, json: async () => url.endsWith('/partial')
+      ? { results: { fundamental_analysis: 'saved analysis' } }
+      : { status: 'error', error: 'summary truncated', progress: { summary: 'failed' } } };
+  };
+  await context.viewCompletedReport('failed');
+  assert.equal(partials[0].fundamental_analysis, 'saved analysis');
+  assert.equal(errors.at(-1), 'summary truncated');
+  assert.equal(rendered.length, 0);
+  assert.equal(requests.some((url) => url.includes('/result/')), false);
+});
 
 test('out-of-order historical report responses cannot switch back to the previous session', async () => {
   const { context, rendered } = navigationHarness();
