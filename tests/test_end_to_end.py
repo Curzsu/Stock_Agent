@@ -122,6 +122,12 @@ _AGENT_MODULES = [
 ]
 
 
+def _make_summary_state():
+    state = _make_initial_state()
+    state["data"]["fundamental_analysis"] = "已有数据支持的基本面分析。"
+    return state
+
+
 def _patch_analysis_agents(contents=None, failures=None):
     """
     patch 4 个分析 agent 模块的 get_mcp_tools 和 create_react_agent。
@@ -278,6 +284,29 @@ class TestEndToEnd(unittest.TestCase):
             {"fundamental", "technical", "value", "news", "summary"},
         )
 
+    def test_summary_does_not_invent_report_when_all_analyses_are_missing(self):
+        from src.agents.summary_agent import summary_agent
+
+        for stale in (False, True):
+            state = _make_initial_state()
+            state["data"]["final_report"] = "stale report"
+            state["data"]["report_path"] = "stale.md"
+            state["data"]["pdf_path"] = "stale.pdf"
+            if stale:
+                state["data"]["fundamental_analysis"] = "stale analysis"
+                state["data"]["fundamental_analysis_error"] = "signature error"
+            patchers, calls = _patch_summary()
+            try:
+                result = asyncio.run(summary_agent(state))
+            finally:
+                for patcher in patchers:
+                    patcher.stop()
+            self.assertEqual(calls, [])
+            self.assertIn("summary_error", result["data"])
+            self.assertNotIn("final_report", result["data"])
+            self.assertNotIn("report_path", result["data"])
+            self.assertNotIn("pdf_path", result["data"])
+
     def test_summary_rejects_empty_report_instead_of_reporting_success(self):
         from src.agents.summary_agent import summary_agent
 
@@ -285,12 +314,27 @@ class TestEndToEnd(unittest.TestCase):
             with self.subTest(content=content):
                 patchers, _ = _patch_summary(report_content=content)
                 try:
-                    result = asyncio.run(summary_agent(_make_initial_state()))
+                    result = asyncio.run(summary_agent(_make_summary_state()))
                 finally:
                     for patcher in patchers:
                         patcher.stop()
                 self.assertIn("summary_error", result["data"])
                 self.assertIsNone(result["data"].get("pdf_path"))
+
+    def test_summary_excludes_stale_text_from_failed_dimensions(self):
+        from src.agents.summary_agent import summary_agent
+        state = _make_summary_state()
+        state["data"]["technical_analysis"] = "STALE_PRICE_99999"
+        state["data"]["technical_analysis_error"] = "tool unavailable"
+        patchers, calls = _patch_summary()
+        try:
+            result = asyncio.run(summary_agent(state))
+        finally:
+            for patcher in patchers:
+                patcher.stop()
+        self.assertNotIn("summary_error", result["data"])
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("STALE_PRICE_99999", repr(calls))
 
     def test_summary_recovers_from_length_without_repeating_analysts(self):
         from src.agents.summary_agent import summary_agent
@@ -308,7 +352,7 @@ class TestEndToEnd(unittest.TestCase):
         try:
             with patch("langchain_openai.ChatOpenAI") as factory:
                 factory.return_value.ainvoke = invoke
-                result = asyncio.run(summary_agent(_make_initial_state()))
+                result = asyncio.run(summary_agent(_make_summary_state()))
                 self.assertGreater(factory.call_args.kwargs["max_tokens"], 5000)
         finally:
             for patcher in patchers:
@@ -330,7 +374,7 @@ class TestEndToEnd(unittest.TestCase):
             with self.subTest(message=message):
                 patchers, _ = _patch_summary(report_message=message)
                 try:
-                    result = asyncio.run(summary_agent(_make_initial_state()))
+                    result = asyncio.run(summary_agent(_make_summary_state()))
                 finally:
                     for patcher in patchers:
                         patcher.stop()

@@ -20,6 +20,7 @@ import os
 import time
 import types
 import threading
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -93,7 +94,12 @@ class TestBaostockHelperConcurrency(unittest.TestCase):
 
     def _import_helper(self, fake_bs):
         """隔离数据源和登录状态，保持 server 与 helper 引用同一模块。"""
-        import src.utils.baostock_helper as helper
+        from finex_data import baostock_runtime as helper
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        environment = patch.dict(os.environ, {"FINEX_BAOSTOCK_STATE_DIR": directory.name})
+        environment.start()
+        self.addCleanup(environment.stop)
         for name, value in (("bs", fake_bs), ("_logged_in", False)):
             patcher = patch.object(helper, name, value)
             patcher.start()
@@ -141,22 +147,15 @@ class TestBaostockHelperConcurrency(unittest.TestCase):
         self.assertEqual(ok_count, N_THREADS,
                          f"仅{ok_count}/{N_THREADS} 成功，其余因竞态失败")
 
-    def test_ensure_logged_in_is_idempotent_and_singleton(self):
-        """
-        RED: ensure_logged_in 应只登录一次（单例），重复调用不重复 login。
-        """
+    def test_login_probe_does_not_leave_an_idle_provider_connection(self):
+        """A compatibility probe releases access before other processes run."""
         fake_bs = _install_fake_baostock()
         helper = self._import_helper(fake_bs)
 
-        login_count_before = self._count_logins(fake_bs)
-        helper.ensure_logged_in()
-        helper.ensure_logged_in()
-        helper.ensure_logged_in()
-        login_count_after = self._count_logins(fake_bs)
-
-        # 单例：多次 ensure 只应登录一次（或第一次已登录则不再 login）
-        self.assertLessEqual(login_count_after - login_count_before, 1,
-                             "ensure_logged_in 应是单例，不应重复 login")
+        for _ in range(3):
+            helper.ensure_logged_in()
+            self.assertFalse(fake_bs._state["_connected"])
+            self.assertFalse(helper._logged_in)
 
     def test_result_pages_are_consumed_before_releasing_query_lock(self):
         fake_bs = _install_fake_baostock()
@@ -205,22 +204,6 @@ class TestBaostockHelperConcurrency(unittest.TestCase):
         self.assertEqual(result.error_code, "10001")
         self.assertEqual(result.error_msg, "connection lost")
 
-    def _count_logins(self, fake_bs):
-        """计数 login 被调用的次数。"""
-        # 用 mock 包装 login 计数
-        original = fake_bs.login
-        counter = {"n": 0}
-
-        def counting_login(*args, **kwargs):
-            counter["n"] += 1
-            return original(*args, **kwargs)
-
-        fake_bs.login = counting_login
-        # 重新导入 helper 让它用 counting 版本
-        import src.utils.baostock_helper as helper
-        helper.bs = fake_bs
-        helper.ensure_logged_in()
-        return counter["n"]
 
 
 class TestServerFunctionsConcurrency(unittest.TestCase):
@@ -238,8 +221,13 @@ class TestServerFunctionsConcurrency(unittest.TestCase):
         cls._shared_fake_bs = _install_fake_baostock()
 
     def setUp(self):
-        """每个测试前重置 helper 单例登录状态，确保测试独立。"""
-        import src.utils.baostock_helper as bh
+        """Isolate provider state and the shared circuit from the running app."""
+        from finex_data import baostock_runtime as bh
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        environment = patch.dict(os.environ, {"FINEX_BAOSTOCK_STATE_DIR": directory.name})
+        environment.start()
+        self.addCleanup(environment.stop)
         for target, name, value in (
             (bh, "_logged_in", False),
             (bh, "bs", self._shared_fake_bs),

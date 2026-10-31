@@ -3,7 +3,7 @@ NewsAnalysis Agent: Performs news analysis with sentiment and risk assessment us
 新闻分析 Agent：使用ReAct Agent框架进行新闻分析，包含情感分析和风险评估
 """
 import os
-from langchain_openai import ChatOpenAI
+from src.utils.chat_model import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 import time

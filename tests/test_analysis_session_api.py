@@ -1,7 +1,10 @@
 import os
 import asyncio
 import sys
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -60,6 +63,34 @@ class TestAnalysisSessionApi(unittest.TestCase):
         self.assertEqual(response.json()["results"], {
             "fundamental_analysis": "# 基本面\n\n盈利能力保持稳健。",
         })
+
+    def test_pdf_failure_is_terminal_instead_of_pending_forever(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "report.md"
+            self.session.status = "completed"
+            self.session.result = {"report_path": str(report)}
+            report.with_suffix(".pdf.status.json").write_text(
+                json.dumps({"status": "failed", "message": "缺少 XeLaTeX/Tectonic"}), encoding="utf-8",
+            )
+            response = self.client.get("/api/report-pdf/session1")
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"]["status"], "failed")
+        self.assertIn("Tectonic", response.json()["detail"]["message"])
+
+    def test_pdf_pending_and_success_keep_existing_download_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "report.md"
+            self.session.status = "completed"
+            self.session.result = {"report_path": str(report), "company_name": "示例公司"}
+            pending = self.client.get("/api/report-pdf/session1")
+            self.assertEqual(pending.status_code, 404)
+            self.assertEqual(pending.json()["detail"]["status"], "pending")
+            content = b"%PDF-1.7\ncomplete report\n%%EOF\n"
+            report.with_suffix(".pdf").write_bytes(content)
+            ready = self.client.get("/api/report-pdf/session1")
+            self.assertEqual(ready.status_code, 200)
+            self.assertEqual(ready.content, content)
+            self.assertEqual(ready.headers["content-type"], "application/pdf")
 
     def test_invalid_agent_result_is_failed_instead_of_completed(self):
         for agent_key, (result_key, _) in server.AGENT_RESULT_KEYS.items():

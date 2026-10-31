@@ -54,10 +54,10 @@ from src.agents.summary_agent import summary_agent
 from src.utils.state_definition import AgentState
 
 # Import baostock thread-safe helper (P0-2: 修复全局登录并发竞态)
-from src.utils.baostock_helper import BaostockDataError, ensure_logged_in, safe_query
+from src.utils.baostock_helper import BaostockBlacklistedError, BaostockDataError, safe_query
 
 # Import shared PDF path derivation (P2-6: 消除三处重复的路径推断逻辑)
-from src.utils.pdf_converter import derive_pdf_path
+from src.utils.pdf_converter import derive_pdf_path, get_pdf_status
 
 # Import shared stock info extractor (P2-3: 合并 main.py 与 server.py 两套 extract_stock_info)
 from src.utils.stock_extractor import extract_stock_info, COMPANY_CODE_MAP
@@ -650,6 +650,11 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         session.error = f"分析超时（超过 {WORKFLOW_TIMEOUT_SECONDS:.0f} 秒），请稍后重试。"
         session.end_time = datetime.now().isoformat()
 
+    except BaostockBlacklistedError as e:
+        session.status = "error"
+        session.error = f"行情数据服务（baostock）访问已暂停：{e}"
+        session.end_time = datetime.now().isoformat()
+
     except BaostockDataError as e:
         session.status = "error"
         session.error = f"行情数据服务（baostock）暂时不可用，请稍后重试：{e}"
@@ -791,8 +796,8 @@ async def get_analysis_result(analysis_id: str):
 async def download_report_pdf(analysis_id: str):
     """Download the PDF report for a completed analysis.
 
-    Uses file-system-based check: derives the expected PDF path from the MD path
-    and checks os.path.exists(). Returns the file if ready, 404 if not yet generated.
+    Only complete PDFs are published. Distinguish a failed build from a pending
+    background job so the frontend can stop polling on missing tools or TeX errors.
     """
     if analysis_id not in analysis_sessions:
         raise HTTPException(status_code=404, detail="Analysis not found")
@@ -815,7 +820,8 @@ async def download_report_pdf(analysis_id: str):
     pdf_path = derive_pdf_path(report_path)
 
     if not os.path.exists(pdf_path):
-        raise HTTPException(status_code=404, detail={"status": "pending", "message": "PDF is still being generated"})
+        status = get_pdf_status(report_path)
+        raise HTTPException(status_code=500 if status["status"] == "failed" else 404, detail=status)
 
     # Generate a user-friendly filename
     company_name = (session.result and session.result.get("company_name", "")) or "report"
@@ -966,7 +972,6 @@ async def market_kline(days: int = 120):
     import time as _time
 
     def _fetch_kline() -> list:
-        ensure_logged_in()
         end_date = datetime.now().strftime("%Y-%m-%d")
         # 上证指数日K，回溯约 days*2 个自然日以覆盖足够交易日
         start_date = (datetime.now() - timedelta(days=days * 2)).strftime("%Y-%m-%d")
@@ -1025,7 +1030,6 @@ async def stock_market(code: str, days: int = 120, frequency: str = "d"):
                 code,
                 days,
                 frequency,
-                ensure_logged_in,
                 safe_query,
                 bs,
             ),

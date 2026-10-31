@@ -103,7 +103,6 @@ def fetch_stock_market(
     code: str,
     days: int,
     frequency: str,
-    ensure_logged_in,
     safe_query,
     bs_module,
 ) -> Dict[str, Any]:
@@ -112,7 +111,7 @@ def fetch_stock_market(
     if frequency not in ALLOWED_FREQUENCIES:
         raise ValueError("frequency must be d, w, or m")
 
-    ensure_logged_in()
+    # safe_query owns the complete serialized provider session.
     lookback_factor = {"d": 2, "w": 9, "m": 40}[frequency]
     end_date = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=days * lookback_factor)).strftime("%Y-%m-%d")

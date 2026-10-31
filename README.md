@@ -13,6 +13,7 @@
 - **MCP 协议集成**：通过 Model Context Protocol 统一接入 A 股数据源
 - **实时进度追踪**：支持异步任务处理，前端实时轮询分析进度
 - **综合报告生成**：AI 自动生成结构化股票分析报告
+- **涂鸦 PDF 报告**：基于 Pandoc + Eisvogel 排版，蜡笔人物融入奶油色封面，配合手写感标题、涂鸦编号和彩色表格，支持中文、目录与公式
 - **真实行情展示**：首页展示上证指数日终行情及交易日期，行情不可用时明确提示，不使用模拟价格填充
 - **结果有效性校验**：空响应、未完成的工具调用和因输出上限截断的模型响应会进入失败状态，避免被当作成功报告
 - **故障恢复**：报告加载失败自动尝试最多三次，也可手动重新加载；MCP 数据连接失效后，后续分析或单项重试会重建会话
@@ -63,6 +64,16 @@
 | 数据协议 | MCP (Model Context Protocol) |
 | 数据源 | Baostock, A股行情接口 |
 | LLM | OpenAI 兼容 API (OpenRouter 等) |
+| PDF 排版 | Pandoc 3 + Eisvogel 3.5.1 + XeLaTeX / Tectonic |
+
+Google AI Studio 的 Gemini Key 可配合 Google 的 OpenAI 兼容接口使用：
+`https://generativelanguage.googleapis.com/v1beta/openai/`，模型填写账号可用的 Gemini 模型 ID。
+四个分析 Agent 使用共享兼容层，在本项目的非流式多轮工具调用中原样保留并回传
+`extra_content.google.thought_signature`，避免工具已执行、提交结果时却因缺少签名而被拒绝。
+兼容层与离线回归基于 `langchain-openai>=1.1.11,<2.0`。
+
+当四路分析都未取得有效结果时，系统会明确报错并停止汇总，不会再用常识推演生成投资结论。
+部分维度缺失时只汇总成功取得的信息，并标明缺失项。修复前已生成的缺数据报告需重新发起分析。
 
 ## 快速开始
 
@@ -126,6 +137,56 @@ python -m uvicorn backend.server:app --host 0.0.0.0 --port 8100
 
 打开浏览器访问 http://localhost:8100
 
+### PDF 报告环境
+
+PDF 在后台独立生成；Markdown 报告和在线阅读不依赖排版工具。
+模板固定使用 [Eisvogel 3.5.1](https://github.com/Wandmalfarbe/pandoc-latex-template/releases/tag/v3.5.1)，
+随项目分发并保留 BSD-3-Clause 许可证。FINEX 暖色主题独立存放，方便升级上游模板。
+封面插画资源随 `pdf_templates/assets` 分发；生成报告时直接复用本地图片，不需要调用图像模型。
+正文使用手绘线条、记号笔色块和轻量边角涂鸦。中文标题优先使用楷体，英文标题优先使用
+Comic Sans MS；缺少系统字体时使用 TeX 自带的 FandolKai / TeX Gyre 字体。
+封面中文使用更圆润的幼圆体，缺少该字体时回退到 FandolHei；人物收在右下方，约占封面底部三成高度，为标题留出空间。
+正文会自动加粗 ROE、毛利率、市盈率等财务术语和带单位的指标数值；已有加粗、代码、公式与链接地址保持完整。
+摘要与风险分别使用薄荷色、蜜桃色提示卡片，基本面、估值与投资建议中的完整标签列表会转成信息表，
+技术面与新闻保留简短要点。新报告也会按这些规则生成 Markdown；旧报告无需再次调用模型即可重新排版。
+
+Windows x64 可安装到项目的 `.tools/pdf`，不修改全局 PATH：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup_pdf.ps1
+```
+
+脚本从官方 GitHub 发布页下载固定版本 Pandoc 3.13、Tectonic 0.17.0，并校验 SHA-256。
+首次使用 Tectonic 时会联网下载所需 LaTeX 包，后续使用本地缓存；报告在本机排版。
+Linux/macOS 需安装 [Pandoc 3](https://pandoc.org/installing.html) 和
+[Tectonic](https://tectonic-typesetting.github.io/en-US/install.html)，也可使用带有 XeLaTeX、
+xeCJK、TikZ、KOMA-Script 等包的 TeX Live / MiKTeX。模板所需包见
+[Eisvogel 官方说明](https://github.com/Wandmalfarbe/pandoc-latex-template#required-latex-packages)。
+
+可在 `agents/.env` 自定义排版工具、中文字体和超时，修改后重启服务：
+
+```dotenv
+# 通常无需指定，自动发现项目便携工具和 PATH 中的程序
+# PANDOC_PATH=C:/path/to/pandoc.exe
+# PDF_LATEX_ENGINE=tectonic
+# PDF_CJK_FONT=Noto Sans CJK SC
+PDF_TIMEOUT_SECONDS=300
+```
+
+默认优先使用 XeLaTeX，找不到时使用 Tectonic；中文字体在 Windows 为 Microsoft YaHei，
+其他平台为 FandolHei-Regular.otf。自定义字体必须已安装或在 LaTeX 字体库中可用。
+
+无需重新分析或调用模型，即可为已有 Markdown 生成新版 PDF：
+
+```bash
+python scripts/generate_pdf.py "agents/reports/md/report_example.md" --date 2026-10-31
+```
+
+输出路径沿用 `reports/md/文件名.md` → `reports/pdf/文件名.pdf`；其他目录则输出到 Markdown 旁边。
+已生成的旧 PDF 保持原样，手动执行上述命令可重新排版。
+每次生成使用独立临时目录，仅在成功后替换成品；字体缺失、工具缺失或超时会记录明确失败状态，
+前端会停止等待，不会下载半成品。
+
 ## 项目结构
 
 ```
@@ -156,8 +217,9 @@ finex/
 │   │       ├── execution_logger.py   # 执行日志
 │   │       ├── llm_clients.py        # LLM 客户端管理
 │   │       ├── logging_config.py     # 日志配置
-│   │       ├── pdf_converter.py      # Markdown -> PDF 转换
-│   │       └── pdf_styles.py         # PDF 样式与解析
+│   │       ├── pdf_converter.py      # Pandoc 调用、原子发布、后台 PDF 任务
+│   │       ├── pdf_styles.py         # Markdown 与封面元数据
+│   │       └── pdf_templates/        # Eisvogel 模板、许可证与 FINEX 暖色主题
 │   ├── reports/               # 生成的分析报告 (md/ + pdf/, gitignored)
 │   └── .env                   # 环境配置 (gitignored)
 ├── mcp-server/                 # MCP 数据服务 (A 股行情/财务/宏观数据)
@@ -309,6 +371,24 @@ GET /api/health
 - ...
 
 ## 配置说明
+
+### baostock 连接与黑名单保护
+
+Web 行情/股票校验与 MCP 数据工具共用 `finex_data/baostock_runtime.py`。
+同一状态目录下的进程通过操作系统文件锁串行访问；锁覆盖登录、查询、全部分页、登出和关闭连接。
+查询结果先完整读入内存，再释放连接，避免 Web 的闲置连接与 MCP 登录重叠。
+因此每次查询会建立和关闭会话，可能增加请求耗时；进程退出后系统自动释放锁。
+
+收到 `10001011` 时立即停止重试，并将本地暂停记录保存到 `.runtime/baostock/blacklist.json`。
+暂停期间 Web/MCP 请求均直接返回错误，不连接 baostock；服务重启也保留该记录。
+若磁盘写入失败，错误日志会明确提示，此时仅本进程能保留暂停保护，需先恢复状态目录的可写性。
+默认保护 6 小时，`BAOSTOCK_BLACKLIST_COOLDOWN_SECONDS` 可设置至少 60 秒的有限秒数。
+这只是本地保护期限，不能解除官方黑名单，也不代表官方届时一定释放；实际释放时间见
+[官方黑名单页面](https://www.baostock.com/blacklist)。到期后的下一个请求才会尝试登录，仍被拒绝则再次暂停。
+
+默认状态目录在项目根目录。若同一机器运行多个项目副本，需为所有实例设置相同的绝对路径
+`FINEX_BAOSTOCK_STATE_DIR`，并保证它们使用相同共享运行时；本项目的锁无法协调其他机器或外部程序。
+请勿删除正在使用的 `access.lock`，否则可能破坏进程间互斥。修改环境变量后重启服务。
 
 页面中的 API 配置仅允许在运行服务的本机，通过 `localhost`、`127.0.0.1` 或 `[::1]` 访问并修改。更换 Base URL 时需要重新输入对应的 API Key；已有密钥不会自动用于新地址。
 

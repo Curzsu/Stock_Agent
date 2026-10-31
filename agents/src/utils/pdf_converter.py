@@ -1,413 +1,256 @@
-"""
-PDF Converter Module - Async wrapper for PDF generation.
+"""Generate Eisvogel PDFs off the event loop and publish complete files atomically."""
 
-Converts MD report files to professional PDF.
-Supports two backends:
-  1. xhtml2pdf (default) - Pure Python, no system deps, works on Windows/Linux/macOS
-  2. WeasyPrint (optional) - Higher quality, requires GTK/Pango system libraries
-
-Runs PDF generation in a thread executor to avoid blocking the async event loop.
-Includes robust exception isolation to never crash the main agent pipeline.
-"""
-
-import os
 import asyncio
-import glob
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import tempfile
+import time
+from pathlib import Path
 from typing import Optional
+from xml.etree import ElementTree
 
-from src.utils.pdf_styles import render_report_html, extract_title_info
-from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
+from src.utils.pdf_styles import prepare_report
+from src.utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
-
-# Try to import PDF engines
-_HAS_XHTML2PDF = False
-_HAS_WEASYPRINT = False
-
-try:
-    from xhtml2pdf import pisa
-    _HAS_XHTML2PDF = True
-except ImportError:
-    pass
-
-try:
-    from weasyprint import HTML as WeasyHTML
-    _HAS_WEASYPRINT = True
-except ImportError:
-    pass
-
-# Choose engine
-if _HAS_WEASYPRINT:
-    _PDF_ENGINE = "weasyprint"
-    logger.info(f"PDF engine: WeasyPrint (high quality)")
-elif _HAS_XHTML2PDF:
-    _PDF_ENGINE = "xhtml2pdf"
-    logger.info(f"PDF engine: xhtml2pdf (pure Python, cross-platform)")
-else:
-    _PDF_ENGINE = None
-    logger.warning(f"{ERROR_ICON} No PDF engine available. Install xhtml2pdf or weasyprint.")
-
-
-# ============================================================================
-# Chinese Font Registration for xhtml2pdf / ReportLab
-# ============================================================================
-
-_CN_FONTS_REGISTERED = False
-_CJK_FONT_ALIASES = {}
-
-def _register_chinese_fonts():
-    """
-    Register Chinese fonts for xhtml2pdf / ReportLab.
-
-    Strategy:
-    1. First, register ReportLab's built-in CID fonts (STSong-Light etc.)
-       These work everywhere without any external files.
-    2. Then, register system TTF/TTC fonts (SimHei, SimSun, Microsoft YaHei etc.)
-       These provide better quality but require the font files to exist on disk.
-    3. Finally, map CSS font-family names into xhtml2pdf's font table.
-    """
-    global _CN_FONTS_REGISTERED
-    if _CN_FONTS_REGISTERED:
-        return
-
-    registered = []
-
-    # --- Step 1: Built-in CID fonts (always available) ---
-    try:
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-
-        cid_fonts = ["STSong-Light", "MSung-Light", "HeiseiMin-W3", "HeiseiKakuGo-W5"]
-        for name in cid_fonts:
-            try:
-                pdfmetrics.registerFont(UnicodeCIDFont(name))
-                registered.append(name)
-            except Exception:
-                pass
-    except ImportError:
-        pass
-
-    # --- Step 2: System TTF/TTC fonts ---
-    try:
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-        from reportlab.lib.fonts import addMapping
-
-        search_paths = []
-        if os.name == "nt":
-            search_paths.append(r"C:\Windows\Fonts")
-        else:
-            search_paths.extend([
-                "/usr/share/fonts",
-                "/usr/local/share/fonts",
-                os.path.expanduser("~/.fonts"),
-                "/System/Library/Fonts",
-                "/Library/Fonts",
-            ])
-
-        font_targets = [
-            ("simhei.ttf",  "SimHei"),
-            ("simsun.ttc",  "SimSun"),
-            ("msyh.ttc",    "MicrosoftYaHei"),
-            ("notosanssc*", "NotoSansSC"),
-        ]
-
-        for font_dir in search_paths:
-            if not os.path.exists(font_dir):
-                continue
-            all_files = os.listdir(font_dir)
-
-            for pattern, name in font_targets:
-                if pattern.endswith("*"):
-                    matches = glob.glob(os.path.join(font_dir, pattern))
-                    if not matches:
-                        continue
-                    font_path = matches[0]
-                else:
-                    font_path = os.path.join(font_dir, pattern)
-                    if pattern.lower() not in [f.lower() for f in all_files]:
-                        continue
-
-                try:
-                    pdfmetrics.registerFont(TTFont(name, font_path))
-                    registered.append(name)
-                except Exception:
-                    pass
-    except ImportError:
-        pass
-
-    # --- Step 3: Map fonts into xhtml2pdf's internal table ---
-    # xhtml2pdf resolves CSS font-family through pisaContext.fontList.
-    # We need to make our font names known to it by monkey-patching the default
-    # font list that gets initialized for every new pisaContext.
-    try:
-        import xhtml2pdf.default as xhtml2pdf_default
-
-        # The DEFAULT_CSS in xhtml2pdf already defines font-family.
-        # We override getFontName behavior so it finds our CJK fonts.
-        _map_cjk_fonts_in_xhtml2pdf(registered)
-    except Exception:
-        pass
-
-    _CN_FONTS_REGISTERED = True
-    logger.info(f"Registered Chinese fonts: {registered}")
-
-
-def _map_cjk_fonts_in_xhtml2pdf(registered_fonts):
-    """
-    Monkey-patch xhtml2pdf's font resolution so CSS font-family: "SimSun"
-    etc. actually resolves to the registered ReportLab fonts.
-    """
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.lib.fonts import addMapping
-
-    # Build a mapping: CSS name -> ReportLab registered name
-    # Priority: TTF fonts > CID fonts
-    font_aliases = {}
-    for name in registered_fonts:
-        font_aliases[name] = name
-        font_aliases[name.lower()] = name
-
-    # Also add common CSS names that map to our fonts
-    font_aliases.update({
-        "simsun":       "SimSun" if "SimSun" in registered_fonts else "STSong-Light",
-        "simhei":       "SimHei" if "SimHei" in registered_fonts else "HeiseiKakuGo-W5",
-        "songti":       "STSong-Light",
-        "heiti":        "SimHei" if "SimHei" in registered_fonts else "HeiseiKakuGo-W5",
-        "yahei":        "MicrosoftYaHei" if "MicrosoftYaHei" in registered_fonts else "SimHei" if "SimHei" in registered_fonts else "STSong-Light",
-    })
-
-    # Store globally so _inject_fonts_to_xhtml2pdf can use it
-    global _CJK_FONT_ALIASES
-    _CJK_FONT_ALIASES = font_aliases
-
-
-# Register fonts at import time
-if _PDF_ENGINE == "xhtml2pdf":
-    _register_chinese_fonts()
-
-
-def _render_with_xhtml2pdf(html_content: str, pdf_path: str) -> bool:
-    """Render HTML to PDF using xhtml2pdf (pure Python, cross-platform)."""
-    # Pre-load Chinese fonts into xhtml2pdf's context before parsing HTML.
-    # We do this via ReportLab registration + xhtml2pdf's internal font table,
-    # because @font-face CSS parsing is broken on Windows (temp file permission issue).
-    _inject_fonts_to_xhtml2pdf()
-
-    with open(pdf_path, "wb") as pdf_file:
-        result = pisa.CreatePDF(
-            html_content,
-            dest=pdf_file,
-            encoding="utf-8",
-            path=os.path.dirname(pdf_path)
-        )
-    return not result.err
-
-
-def _inject_fonts_to_xhtml2pdf():
-    """
-    Monkey-patch xhtml2pdf's pisaContext.getFontName so that when the CSS
-    requests a CJK font-family, it resolves to our registered ReportLab fonts.
-
-    xhtml2pdf resolves CSS font-family -> ReportLab font via pisaContext.fontList.
-    We patch getFontName to check our CJK aliases before falling back to default.
-    """
-    try:
-        from xhtml2pdf import context as ctx
-
-        if hasattr(ctx, '_CJK_PATCHED'):
-            return
-
-        original_getFontName = ctx.pisaContext.getFontName
-
-        def patched_getFontName(self, names, default=""):
-            """Patched version that resolves CJK font names."""
-            if isinstance(names, str):
-                names_list = [n.strip().strip('"\'') for n in names.split(",")]
-            elif isinstance(names, list):
-                names_list = [str(n).strip().strip('"\'') for n in names]
-            else:
-                names_list = [str(names)]
-
-            for name in names_list:
-                lookup = name.lower()
-                if lookup in _CJK_FONT_ALIASES:
-                    resolved = _CJK_FONT_ALIASES[lookup]
-                    # Also add to fontList so future lookups are fast
-                    self.fontList[lookup] = resolved
-                    self.fontList[name] = resolved
-                    return resolved
-
-            return original_getFontName(self, names, default)
-
-        ctx.pisaContext.getFontName = patched_getFontName
-        ctx._CJK_PATCHED = True
-        logger.info(f"CJK font patch applied to xhtml2pdf (aliases: {len(_CJK_FONT_ALIASES)})")
-
-    except Exception as e:
-        logger.warning(f"Could not patch xhtml2pdf font resolution: {e}")
-
-
-def _render_with_weasyprint(html_content: str, pdf_path: str, temp_dir: str) -> bool:
-    """Render HTML to PDF using WeasyPrint (higher quality, needs system deps)."""
-    html_doc = WeasyHTML(string=html_content, base_url=temp_dir)
-    html_doc.write_pdf(pdf_path)
-    return True
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+TEMPLATE_DIR = Path(__file__).with_name("pdf_templates")
+PORTABLE_TOOLS = PROJECT_ROOT / ".tools" / "pdf"
 
 
 def derive_pdf_path(md_path: str) -> str:
-    """根据 MD 报告路径推导对应的 PDF 路径。
-
-    约定：reports/md/xxx.md -> reports/pdf/xxx.pdf
-    若 MD 不在名为 "md" 的目录下，则 PDF 与 MD 同目录、同名换 .pdf 后缀。
-
-    Args:
-        md_path: Absolute path to the .md report file.
-
-    Returns:
-        Absolute path to the corresponding .pdf file (not guaranteed to exist).
-    """
+    """reports/md/name.md -> reports/pdf/name.pdf, otherwise beside the source."""
     md_path = str(md_path)
-    md_dir = os.path.dirname(md_path)
-    md_base = os.path.splitext(os.path.basename(md_path))[0]
-    if os.path.basename(md_dir) == "md":
-        return os.path.join(os.path.dirname(md_dir), "pdf", md_base + ".pdf")
+    directory = os.path.dirname(md_path)
+    stem = os.path.splitext(os.path.basename(md_path))[0]
+    if os.path.basename(directory) == "md":
+        return os.path.join(os.path.dirname(directory), "pdf", stem + ".pdf")
     return os.path.splitext(md_path)[0] + ".pdf"
 
 
-def convert_md_to_pdf(md_path: str, company_name: str = "",
-                      stock_code: str = "", analysis_date: str = "") -> Optional[str]:
-    """
-    Convert a Markdown report file to a professionally styled PDF.
+def _find_tool(override: str, name: str) -> Optional[str]:
+    if override:
+        found = shutil.which(override)
+        if found:
+            return found
+        candidate = Path(override).expanduser()
+        return str(candidate.resolve()) if candidate.is_file() else None
+    suffix = ".exe" if os.name == "nt" else ""
+    portable = PORTABLE_TOOLS / name / (name + suffix)
+    return str(portable) if portable.is_file() else shutil.which(name)
 
-    This is a synchronous, CPU-intensive function. Callers should invoke it
-    via run_in_executor to avoid blocking the event loop.
 
-    Exception isolation: all PDF engine errors are caught and logged.
-    Returns None on failure instead of raising.
+def _resolve_toolchain() -> tuple[str, str]:
+    pandoc = _find_tool(os.getenv("PANDOC_PATH", ""), "pandoc")
+    if not pandoc:
+        raise RuntimeError("缺少 Pandoc 3；Windows 请运行 scripts/setup_pdf.ps1，其他平台请安装 Pandoc。")
+    version = subprocess.run(
+        [pandoc, "--version"], capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=10, check=True,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+    )
+    match = re.search(r"pandoc(?:\.exe)?\s+(\d+)\.", version.stdout)
+    if not match or int(match.group(1)) < 3:
+        raise RuntimeError("Eisvogel 需要 Pandoc 3；请升级或运行 scripts/setup_pdf.ps1。")
+    configured = os.getenv("PDF_LATEX_ENGINE", "")
+    if configured:
+        name = Path(configured).stem.lower()
+        if name not in {"xelatex", "tectonic"}:
+            raise RuntimeError("PDF_LATEX_ENGINE 仅支持 xelatex、tectonic 或其完整路径。")
+        engine = _find_tool(configured, name)
+    else:
+        engine = _find_tool("", "xelatex") or _find_tool("", "tectonic")
+    if not engine:
+        raise RuntimeError("缺少 XeLaTeX/Tectonic；Windows 请运行 scripts/setup_pdf.ps1。")
+    return pandoc, engine
 
-    Args:
-        md_path: Absolute path to the .md report file
-        company_name: Company name for the cover page
-        stock_code: Stock code for the cover page
-        analysis_date: Date string for the cover page
 
-    Returns:
-        Absolute path to the generated .pdf file, or None on failure.
-    """
+def _run_pandoc(command: list[str], *, cwd: str, timeout: float) -> None:
+    """Bound the entire build, including the LaTeX child process on timeout."""
+    environment = os.environ.copy()
+    if os.name == "nt" and not environment.get("FONTCONFIG_FILE"):
+        # Portable Tectonic has no system fonts.conf on Windows. Give fontconfig
+        # explicit font/cache directories without changing process-wide settings.
+        config = ElementTree.Element("fontconfig")
+        font_dirs = [Path(environment.get("WINDIR", r"C:\Windows")) / "Fonts"]
+        if environment.get("LOCALAPPDATA"):
+            font_dirs.append(Path(environment["LOCALAPPDATA"]) / "Microsoft/Windows/Fonts")
+        for directory in font_dirs:
+            if directory.is_dir():
+                ElementTree.SubElement(config, "dir").text = directory.as_posix()
+        cache = PORTABLE_TOOLS / "fontconfig-cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        ElementTree.SubElement(config, "cachedir").text = cache.as_posix()
+        config_path = Path(cwd) / "fonts.conf"
+        ElementTree.ElementTree(config).write(config_path, encoding="utf-8", xml_declaration=True)
+        environment["FONTCONFIG_FILE"] = str(config_path)
+    options = {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    process = subprocess.Popen(
+        command, cwd=cwd, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace", **options,
+    )
     try:
-        if not _PDF_ENGINE:
-            logger.error(f"{ERROR_ICON} No PDF engine available")
-            return None
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=10, check=True, creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+        except (OSError, subprocess.SubprocessError):
+            process.kill()
+        process.communicate(timeout=10)
+        raise
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, command, stdout, stderr)
+    if stderr.strip():
+        logger.info("Pandoc build notes: %s", stderr[-4000:])
 
-        md_path = str(md_path)
-        if not os.path.exists(md_path):
-            logger.error(f"{ERROR_ICON} MD file not found: {md_path}")
-            return None
 
-        # Derive PDF path: reports/md/xxx.md -> reports/pdf/xxx.pdf
-        # (shared logic; ensures directory convention changes only need one edit)
-        pdf_path = derive_pdf_path(md_path)
-        # Ensure the PDF output directory exists (only creates reports/pdf/ when
-        # the MD lives under a "md" dir; otherwise the MD dir already exists).
-        if os.path.basename(os.path.dirname(md_path)) == "md":
-            os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+def _write_pdf_status(pdf_path: Path, status: str, message: str = "", timeout: float = 300) -> None:
+    """Sidecar survives detached background state and distinguishes failure from waiting."""
+    target = pdf_path.with_suffix(".pdf.status.json")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, suffix=".tmp", delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump({"status": status, "message": message, "updated_at": time.time(), "timeout": timeout}, stream, ensure_ascii=False)
+        temporary.replace(target)
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink()
 
-        logger.info(f"{WAIT_ICON} Starting PDF generation ({_PDF_ENGINE}): {os.path.basename(md_path)}")
 
-        # Read MD content
-        with open(md_path, "r", encoding="utf-8") as f:
-            md_content = f.read()
+def get_pdf_status(md_path: str) -> dict:
+    """Read readiness without importing a PDF engine or exposing a partial file."""
+    pdf_path = Path(derive_pdf_path(md_path))
+    if pdf_path.is_file() and pdf_path.stat().st_size > 0:
+        return {"status": "ready", "message": "PDF 已生成"}
+    try:
+        status = json.loads(pdf_path.with_suffix(".pdf.status.json").read_text(encoding="utf-8"))
+        if status["status"] == "pending" and time.time() - status["updated_at"] > status["timeout"] + 30:
+            return {"status": "failed", "message": "PDF 生成超时或服务已中断，请重新生成。"}
+        return {"status": status["status"], "message": status.get("message", "")}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {"status": "pending", "message": "PDF is still being generated"}
 
-        if not md_content.strip():
-            logger.error(f"{ERROR_ICON} MD file is empty: {md_path}")
-            return None
 
-        # Extract company_name/stock_code from MD content if not provided
-        import re
-        if not company_name or not stock_code:
-            h1_match = re.search(r'^#\s+(.+?)(?:\s*综合分析报告)?$', md_content, re.MULTILINE)
-            if h1_match:
-                title = h1_match.group(1).strip()
-                # Use the shared parser so the extraction logic stays in sync
-                # with parse_md_to_sections (handles sh./sz./bare code formats).
-                info = extract_title_info(title)
-                if not stock_code:
-                    stock_code = info["stock_code"]
-                if not company_name:
-                    company_name = info["company_name"]
+def _pandoc_failure_message(error: subprocess.CalledProcessError, pdf_path: Path) -> str:
+    """Pandoc may put the TeX error in stdout and download notes in stderr."""
+    diagnostics = "\n".join(part for part in (error.stdout, error.stderr) if part) or str(error)
+    try:
+        pdf_path.with_suffix(".pdf.log").write_text(diagnostics, encoding="utf-8")
+    except OSError:
+        logger.warning("Could not save PDF build diagnostics: %s", pdf_path)
+    lines = diagnostics.splitlines()
+    selected = set()
+    for index, line in enumerate(lines):
+        if re.search(r"error|^!|fatal", line, re.IGNORECASE):
+            selected.update(range(index, min(index + 4, len(lines))))
+    summary = "\n".join(lines[index] for index in sorted(selected))
+    if not summary:
+        summary = "\n".join(line for line in lines if not line.startswith("note: downloading"))
+    return f"PDF 排版失败：{(summary or diagnostics)[-2500:]}"
 
-        # Build styled HTML via Jinja2 template
-        html_content = render_report_html(
-            md_content=md_content,
-            company_name=company_name,
-            stock_code=stock_code,
-            analysis_date=analysis_date,
-        )
 
-        # Render PDF using the selected engine
-        temp_dir = os.path.dirname(md_path)
-        success = False
-
-        if _PDF_ENGINE == "weasyprint":
-            success = _render_with_weasyprint(html_content, pdf_path, temp_dir)
-        elif _PDF_ENGINE == "xhtml2pdf":
-            success = _render_with_xhtml2pdf(html_content, pdf_path)
-
-        if not success:
-            logger.error(f"{ERROR_ICON} PDF engine returned error for {md_path}")
-            return None
-
-        # Verify PDF was created
-        if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-            file_size_kb = os.path.getsize(pdf_path) / 1024
-            logger.info(
-                f"{SUCCESS_ICON} PDF generated successfully: {os.path.basename(pdf_path)} ({file_size_kb:.1f} KB)")
-            return pdf_path
+def convert_md_to_pdf(
+    md_path: str, company_name: str = "", stock_code: str = "", analysis_date: str = "",
+) -> Optional[str]:
+    """Render native Markdown with the vendored Eisvogel template; isolate failures."""
+    pdf_path = Path(derive_pdf_path(str(md_path))).resolve()
+    try:
+        source = Path(md_path).resolve()
+        content = source.read_text(encoding="utf-8")
+        if not content.strip():
+            raise ValueError("Markdown 报告为空。")
+        timeout = float(os.getenv("PDF_TIMEOUT_SECONDS", "300"))
+        if not 0 < timeout <= 3600:
+            raise ValueError("PDF_TIMEOUT_SECONDS 必须在 0 到 3600 秒之间。")
+        _write_pdf_status(pdf_path, "pending", timeout=timeout)
+        pandoc, engine = _resolve_toolchain()
+        template = TEMPLATE_DIR / "eisvogel.latex"
+        theme = TEMPLATE_DIR / "finex-warm.tex"
+        cover_art = TEMPLATE_DIR / "assets" / "finex-crayon-cover.png"
+        if not template.is_file() or not theme.is_file():
+            raise RuntimeError("PDF 模板缺失，请恢复 agents/src/utils/pdf_templates。")
+        if not cover_art.is_file():
+            raise RuntimeError("封面插画缺失，请恢复 pdf_templates/assets/finex-crayon-cover.png。")
+        layout_filter = TEMPLATE_DIR / "report-layout.lua"
+        if not layout_filter.is_file():
+            raise RuntimeError("正文排版规则缺失，请恢复 pdf_templates/report-layout.lua。")
+        report = prepare_report(content, company_name, stock_code, analysis_date)
+        logger.info("Generating Eisvogel PDF: %s", source.name)
+        with tempfile.TemporaryDirectory(prefix="finex-pdf-", dir=pdf_path.parent) as temporary:
+            build_dir = Path(temporary)
+            markdown = build_dir / "report.md"
+            metadata = build_dir / "metadata.json"
+            output = build_dir / "report.pdf"
+            markdown.write_text(report.markdown, encoding="utf-8")
+            metadata.write_text(json.dumps(report.metadata, ensure_ascii=False), encoding="utf-8")
+            command = [
+                pandoc, "--from=markdown+lists_without_preceding_blankline-raw_tex-raw_html-yaml_metadata_block",
+                "--standalone", "--template", str(template),
+                "--include-in-header", str(theme), "--metadata-file", str(metadata),
+                "--lua-filter", str(layout_filter),
+                # A template variable keeps the path literal (no Markdown escaping
+                # of underscores/spaces), regardless of the report's directory.
+                "--variable", f"titlepage-background={cover_art.resolve().as_posix()}",
+                f"--pdf-engine={engine}", "--table-of-contents", "--toc-depth=2",
+                "--number-sections",
+                "--resource-path", str(source.parent), "--output", str(output),
+            ]
+            if Path(engine).stem.lower() == "xelatex":
+                command.append("--pdf-engine-opt=-no-shell-escape")
+            command.append(str(markdown))
+            _run_pandoc(command, cwd=str(build_dir), timeout=timeout)
+            if not output.is_file():
+                raise RuntimeError("Pandoc 未生成 PDF 文件。")
+            with output.open("rb") as stream:
+                if stream.read(5) != b"%PDF-":
+                    raise RuntimeError("Pandoc 输出不是有效的 PDF 文件。")
+                stream.seek(max(0, output.stat().st_size - 1024))
+                if not stream.read().rstrip().endswith(b"%%EOF"):
+                    raise RuntimeError("Pandoc 输出的 PDF 不完整。")
+            output.replace(pdf_path)
+        _write_pdf_status(pdf_path, "ready")
+        try:
+            pdf_path.with_suffix(".pdf.log").unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove outdated PDF failure log: %s", pdf_path)
+        logger.info("PDF generated: %s (%.1f KB)", pdf_path.name, pdf_path.stat().st_size / 1024)
+        return str(pdf_path)
+    except Exception as exc:
+        if isinstance(exc, subprocess.TimeoutExpired):
+            message = "PDF 排版超时，请检查字体/LaTeX 依赖或调整 PDF_TIMEOUT_SECONDS。"
+        elif isinstance(exc, subprocess.CalledProcessError):
+            message = _pandoc_failure_message(exc, pdf_path)
         else:
-            logger.error(f"{ERROR_ICON} PDF file was not created or is empty: {pdf_path}")
-            return None
-
-    except Exception as e:
-        logger.error(f"{ERROR_ICON} PDF generation failed for {md_path}: {e}", exc_info=True)
+            message = f"PDF 生成失败：{exc}"
+        logger.error("%s (%s)", message, md_path)
+        try:
+            _write_pdf_status(pdf_path, "failed", message)
+        except OSError:
+            logger.exception("Could not record PDF failure status")
         return None
 
 
-async def generate_pdf_background(md_path: str, state_data: dict,
-                                   company_name: str = "",
-                                   stock_code: str = "",
-                                   analysis_date: str = "") -> None:
-    """
-    Async wrapper that runs PDF generation in a thread executor.
-
-    This function is designed to be called via asyncio.create_task() as a
-    fire-and-forget background job. It updates state_data['pdf_path'] on success
-    and sets it to None on failure.
-
-    Args:
-        md_path: Path to the .md report file
-        state_data: Mutable dict from the agent state (data field)
-        company_name: Company name for the cover page
-        stock_code: Stock code for the cover page
-        analysis_date: Date string for the cover page
-    """
-    loop = asyncio.get_event_loop()
+async def generate_pdf_background(
+    md_path: str, state_data: dict, company_name: str = "", stock_code: str = "", analysis_date: str = "",
+) -> None:
+    """Keep the report workflow responsive; PDF errors never fail the analysis."""
     try:
-        pdf_path = await loop.run_in_executor(
-            None,
-            convert_md_to_pdf,
-            md_path,
-            company_name,
-            stock_code,
-            analysis_date
+        state_data["pdf_path"] = await asyncio.get_running_loop().run_in_executor(
+            None, convert_md_to_pdf, md_path, company_name, stock_code, analysis_date,
         )
-        if pdf_path:
-            state_data["pdf_path"] = pdf_path
-            logger.info(f"{SUCCESS_ICON} Background PDF generation completed: {pdf_path}")
-        else:
-            state_data["pdf_path"] = None
-            logger.warning(f"Background PDF generation returned None for {md_path}")
-
-    except Exception as e:
-        logger.error(f"{ERROR_ICON} Unexpected error in generate_pdf_background: {e}", exc_info=True)
+    except Exception:
+        logger.exception("Unexpected background PDF error: %s", md_path)
         state_data["pdf_path"] = None

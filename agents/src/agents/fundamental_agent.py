@@ -3,7 +3,7 @@ FundamentalAnalysis Agent: Performs fundamental analysis of a stock using ReAct 
 基本面分析 Agent：使用ReAct Agent框架对股票进行基本面分析
 """
 import os
-from langchain_openai import ChatOpenAI
+from src.utils.chat_model import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 import time
