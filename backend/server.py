@@ -54,7 +54,7 @@ from src.agents.summary_agent import summary_agent
 from src.utils.state_definition import AgentState
 
 # Import baostock thread-safe helper (P0-2: 修复全局登录并发竞态)
-from src.utils.baostock_helper import ensure_logged_in, safe_query
+from src.utils.baostock_helper import BaostockDataError, ensure_logged_in, safe_query
 
 # Import shared PDF path derivation (P2-6: 消除三处重复的路径推断逻辑)
 from src.utils.pdf_converter import derive_pdf_path
@@ -462,24 +462,19 @@ def lookup_stock_code_by_name(company_name: str) -> tuple:
 
     使用进程级单例登录 + 互斥锁，避免并发请求互相踢掉 baostock 全局 session。
     """
-    try:
-        ensure_logged_in()
-        rs = safe_query(lambda: bs.query_stock_basic())
-        if rs.error_code != '0':
-            return None, None
+    rs = safe_query(lambda: bs.query_stock_basic(code_name=company_name))
+    if rs.error_code != '0':
+        raise BaostockDataError(f"baostock 股票名称查询失败 ({rs.error_code}): {rs.error_msg}")
 
-        while rs.next():
-            row = rs.get_row_data()
-            code_full = row[rs.fields.index('code')]
-            name = row[rs.fields.index('code_name')]
-            if name == company_name:
-                pure_code = code_full.split('.')[1] if '.' in code_full else code_full
-                return pure_code, name
+    while rs.next():
+        row = rs.get_row_data()
+        code_full = row[rs.fields.index('code')]
+        name = row[rs.fields.index('code_name')]
+        if name == company_name:
+            pure_code = code_full.split('.')[1] if '.' in code_full else code_full
+            return pure_code, name
 
-        return None, None
-    except Exception as e:
-        print(f"Warning: baostock name lookup failed: {e}")
-        return None, None
+    return None, None
 
 def verify_stock_code_exists(stock_code: str) -> tuple:
     """
@@ -488,17 +483,13 @@ def verify_stock_code_exists(stock_code: str) -> tuple:
 
     使用进程级单例登录 + 互斥锁，避免并发请求互相踢掉 baostock 全局 session。
     """
-    try:
-        ensure_logged_in()
-        rs = safe_query(lambda: bs.query_stock_basic(code=stock_code))
-        if rs.error_code == '0' and rs.next():
-            name = rs.get_row_data()[rs.fields.index('code_name')] if 'code_name' in rs.fields else None
-            return True, name
-        return False, None
-    except Exception as e:
-        print(f"Warning: baostock verify failed: {e}")
-        # 验证失败时不阻断流程，让 agent 自行处理
-        return True, None
+    rs = safe_query(lambda: bs.query_stock_basic(code=stock_code))
+    if rs.error_code != '0':
+        raise BaostockDataError(f"baostock 股票代码校验失败 ({rs.error_code}): {rs.error_msg}")
+    if rs.next():
+        name = rs.get_row_data()[rs.fields.index('code_name')] if 'code_name' in rs.fields else None
+        return True, name
+    return False, None
 
 async def run_analysis_workflow(analysis_id: str, query: str):
     """Run the full analysis workflow in background"""
@@ -651,6 +642,11 @@ async def run_analysis_workflow(analysis_id: str, query: str):
     except asyncio.TimeoutError:
         session.status = "error"
         session.error = f"分析超时（超过 {WORKFLOW_TIMEOUT_SECONDS:.0f} 秒），请稍后重试。"
+        session.end_time = datetime.now().isoformat()
+
+    except BaostockDataError as e:
+        session.status = "error"
+        session.error = f"行情数据服务（baostock）暂时不可用，请稍后重试：{e}"
         session.end_time = datetime.now().isoformat()
 
     except Exception as e:
