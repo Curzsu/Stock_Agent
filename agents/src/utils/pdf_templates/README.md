@@ -21,8 +21,10 @@ labeled lists in fundamentals, valuation and recommendations become two-column
 tables. Unstructured lists retain their original form; no report facts are added.
 
 `assets/finex-crayon-cover.png` is the full-page crayon illustration derived from
-the user's reference. It is a required, repository-local runtime asset. The
-renderer passes its absolute path as an Eisvogel template variable so a report
+the user's reference: a blonde girl with a high bun, black bow, and a
+charcoal-and-cream penguin jacket, waving from the lower right. It is a required,
+repository-local runtime asset. The renderer passes its absolute path as an
+Eisvogel template variable so a report
 can live in any directory without losing its background. Text is typeset on top
 of the image, rather than baked into the bitmap. See [the asset prompt](assets/PROMPTS.md).
 Report generation itself does not invoke an image model.

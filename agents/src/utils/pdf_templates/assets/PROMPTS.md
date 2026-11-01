@@ -2,10 +2,37 @@
 
 - Tool: built-in `imagegen`.
 - Saved asset: [finex-crayon-cover.png](finex-crayon-cover.png), RGB, 1055 × 1491 px.
-- Reference: user-supplied drawing of a blonde cartoon girl in a blue puffy coat,
-  with raised hands, thick black outlines, and wax-crayon texture.
+- Current reference: user-supplied drawing of a blonde cartoon girl with a high
+  bun and black bow, a charcoal-and-cream hooded jacket with a penguin patch,
+  raised hands, thick black outlines, and wax-crayon texture.
 - Use: full-page Eisvogel cover background. Keep report text in LaTeX so company
   names, dates and stock codes remain selectable and editable.
+
+## Current edit prompt: remove stray lower-right hair (2026-11-01)
+
+Tool: built-in `imagegen`. Edit target: the reference-character cover below.
+Detail reference: the user's crop identifying the unwanted yellow hair wedge
+below the raised sleeve at the lower right. The saved asset remains RGB,
+1055 × 1491 px.
+
+Use case: precise-object-edit.
+Input image 1: EDIT TARGET, the full existing A4 portrait crayon report-cover background.
+Input image 2: DETAIL REFERENCE identifying the unwanted tuft ONLY; do not paste this crop into the image.
+Make one tiny cleanup: remove the stray triangular GOLD/YELLOW LONG HAIR tuft sticking out from behind the girl's charcoal jacket at the very bottom right, beneath her viewer-right raised elbow. In the full canvas this is the diagonal yellow wedge outside the jacket around 87%–96% of page width, 94%–100% of page height. Remove this entire yellow wedge AND its stray dark diagonal hair-contour lines reaching the bottom edge. Fill ONLY that small area with seamless matching warm ivory textured paper, continuous with the surrounding background. The girl has her hair in a bun and must have no trailing long hair sticking out below her jacket.
+Keep the actual black sleeve, jacket side/hem outline, penguin patch, cream hoodie, both hands, her face, legitimate cheek-length blonde locks, blonde bun, black bow, pose, size and placement EXACTLY unchanged. Preserve all other image content as closely as possible, including the smiling sun and edge scribbles, blank typography area, 1055 × 1491 pixel A4 portrait canvas, coarse crayon texture and warm paper color. Do not redraw or move the girl. Do not remove any legitimate blonde hair around her head. Do not add content. No text, watermark or border. Opaque background.
+
+## Earlier edit prompt: reference character replacement (2026-11-01)
+
+Tool: built-in `imagegen`. Edit target: the previous compact cover. Character
+reference: the user's blonde bun-haired girl in a black-and-cream penguin jacket.
+The saved asset remains RGB, 1055 × 1491 px, with no generated report text.
+
+Use case: precise-object-edit.
+Asset type: the existing full-page A4 portrait background for FINEX PDF reports.
+Input image 1 (finex-crayon-cover.png): EDIT TARGET. Preserve this entire warm ivory paper cover, its canvas proportions, quiet upper and left-center typography space, tiny smiling sun at upper right, and sparse mint, sky blue, peach, lilac and yellow crayon edge doodles. Replace ONLY the girl at the bottom right.
+Input image 2 (codex-clipboard reference): CHARACTER REFERENCE. Replace the old long-haired blue-coat girl with this specific recognizable cute blonde girl: golden blonde hair swept into a high messy bun on her right side with a big BLACK ribbon/bow, swept bangs and loose cheek-length locks, very simple large solid black expressive oval eyes with thick slightly angled lashes, tiny curved smiling mouth, peach face; a CHARCOAL BLACK oversized jacket with CREAM hood, front panels and sleeve stripes, black drawstrings, and the small black-white penguin patch with yellow beak and feet on her left chest (viewer right). Both open hands are raised outwards in welcome. Retain the reference's childlike proportions, face and friendly pose, coarse wax-crayon/oil-pastel texture, uneven thick black outlines, broken pigment and white paper flecks.
+Composition constraints: keep the replacement girl's complete character group the SAME modest visual footprint as the existing cover's girl, occupying only the bottom 28–30% of page height and rightmost approximately 55% of page width. Highest hair/bun and hands start at approximately 71% down the page. Anchor to bottom right, bottom of jacket naturally cropped at page edge. Both raised hands and hair bun must remain visible, with a small margin at right. Integrate her into the warm ivory page without rectangular photo edges or sticker outlines. Do NOT copy the reference's cyan background, rounded rectangle, border, or any text. Do not carry over the old blue coat or long trailing hair. Repaint the old girl's silhouette as matching cream paper where necessary.
+Keep EVERYTHING ELSE on image 1 visually unchanged as closely as possible. No new decorations. No typography, text, letters, numbers, logos or watermark. Opaque warm paper background. Preserve A4 portrait proportions.
 
 ## Original generation prompt
 
@@ -17,7 +44,7 @@ Tool: built-in `imagegen`, editing the original generated cover asset.
 
 Edit this existing A4 portrait crayon report-cover background with ONE targeted composition change: make the existing blonde girl in the blue puffy coat SLIGHTLY SMALLER, about 82% of her current linear size. Scale her complete character group together, including all blonde hair, both raised hands, her face and coat; preserve her identity, welcoming pose, simple expressive black eyes, smile, colors and wax-crayon texture. Keep her anchored to the LOWER RIGHT and keep the lower coat naturally cropped by the bottom edge. Give her a little more breathing room at the right edge, around 2% of page width. Her head/hands should start noticeably LOWER than in the input, so the character occupies about the lower 40–43% of page height rather than almost the lower half, and leaves more ivory paper visible between the title area and the character. This is a modest size reduction, not a tiny mascot or a drastic redesign. Inpaint the space vacated by the old larger girl with matching warm ivory paper grain and the same sparse edge crayon strokes. Preserve the overall A4 portrait canvas, warm paper color, coarse grain, existing smiling sun at the upper right, the mint/blue/yellow/peach/lilac edge scribbles and stars, and the large blank upper/left-middle area reserved for typography. Keep existing border doodles in their current positions as closely as possible. Do not resize the entire page artwork or zoom out the whole image. Do not change the girl's design or introduce new subjects. No text, letters, numbers, logo, watermark, border or frame.
 
-## Final edit prompt: compact character
+## Earlier edit prompt: compact character
 
 Tool: built-in `imagegen`, editing the previous cover asset. Character target:
 75% of previous linear size, anchored at lower right, about the bottom 28–30% of page height.
