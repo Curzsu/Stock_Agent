@@ -9,8 +9,12 @@ SHA-256: `4d257eaeb16eb41c2acec8d5af45b1a4dbe8844e1bc7fb7e61637d7ca20eb699`.
 Use the release artifact rather than the repository's multi-file source template.
 
 `finex-warm.tex` contains the crayon notebook theme: warm paper, handwritten-style
-headings, sketchy numbered labels, uneven pencil rules and small margin doodles.
-Body text stays typeset for readability, with pastel yellow/mint table stripes.
+headings on mint/blue/lilac/peach chapter tabs, tilted number stickers, and uneven
+pencil underlines. Summary and risk notes have rounded corners, small title
+labels and subtle paper shadows, while lists use small blue hand-drawn markers.
+Sun, star-trail and leaf doodles alternate in the margins; page numbers sit on
+small yellow tabs. Body text stays typeset for readability, with comfortable
+table padding and pastel yellow/mint stripes. Cards can still break across pages.
 Headings prefer KaiTi and Comic Sans MS; fallback fonts are FandolKai and TeX Gyre.
 The larger cover text uses the rounded YouYuan face, falling back to FandolHei.
 
@@ -24,8 +28,8 @@ tables. Unstructured lists retain their original form; no report facts are added
 the user's reference: a blonde girl with a high bun, black bow, and a
 charcoal-and-cream penguin jacket, waving from the lower right. It is a required,
 repository-local runtime asset. The renderer passes its absolute path as an
-Eisvogel template variable so a report
-can live in any directory without losing its background. Text is typeset on top
+Eisvogel template variable so a report can live in any directory without losing
+its background. Text is typeset on top
 of the image, rather than baked into the bitmap. See [the asset prompt](assets/PROMPTS.md).
 Report generation itself does not invoke an image model.
 Common rating stars and risk/check markers are rendered with vector/math symbols
