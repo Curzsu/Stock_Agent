@@ -15,6 +15,10 @@ from src.utils.pdf_converter import generate_pdf_background
 from src.utils.agent_config import REACT_TIMEOUT_SECONDS
 from src.utils.agent_output import require_analysis_text
 from src.utils.summary_generation import generate_summary, summary_max_tokens
+from src.utils.report_presentation import REPORT_STYLE_GUIDANCE, polish_report_markdown
+from src.utils.executive_summary import (
+    EXECUTIVE_SUMMARY_GUIDANCE, add_summary_identity, validate_executive_summary,
+)
 from dotenv import load_dotenv
 
 # 从.env文件加载环境变量
@@ -273,8 +277,8 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         
         # [公司名称]([股票代码]) 综合分析报告
         
-        ## 执行摘要
-        [提供简明扼要的总体分析和投资建议，包括风险等级和预期回报]
+        ## 摘要
+        {EXECUTIVE_SUMMARY_GUIDANCE}
         
         ## 公司概况
         [简要介绍公司的业务、行业地位、主要产品或服务]
@@ -298,7 +302,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         [详细分析潜在的风险因素，包括市场风险、行业风险、公司特定风险等]
         
         ## 投资建议
-        [提供明确的投资建议，包括目标价格、投资时间范围、适合的投资者类型等]
+        [写清配置/观察思路、成立条件、期限与适用人群；有测算依据才写目标价，无依据时直接说明无法判断，不单列空的目标价栏]
         
         ## 附录：数据来源与限制
         [说明数据来源，以及分析过程中遇到的任何数据限制或缺失]
@@ -307,12 +311,18 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         正文排版要求：
         - 重要指标、金融术语及对应关键数值使用 **加粗**，例如 **ROE** 为 **6.75%**；
           仅强调关键内容，不要整段加粗，也不要把日期、来源或所有数字都加粗。
-        - 执行摘要使用一段简短的 Markdown 引用（>），突出核心结论。
-        - 有已取得的量化数据时，用“指标 | 数值 | 解读”表格展示3至5项关键指标；
+        - 摘要按上面的专门要求生成，一段结论引用加六个要点与数据边界；后续排版要求只适用于正文。
+        - 正文需要横向对比且有量化数据时，可以用“指标 | 数值 | 解读”表格展示3至5项关键指标；
           无可靠数据时明确说明缺失，不为了排版编造指标、评分或目标价。
-        - 基本面、估值和投资建议优先使用“- **观察项：** 数据与解读”的有标签列表，
+        - 基本面、估值和投资建议优先使用具体主题命名的有标签列表，例如“- **主流估值指标：** 数据与解读”，
+          标签直接写主题，不加“观察项”等重复前缀；
           技术面与新闻使用简短要点，风险因素使用有序列表；避免连续长段落。
         - 每个章节选择适合内容的形式，表格与正文不要重复同一组数据；来源与时间基准保留。
+        {REPORT_STYLE_GUIDANCE}
+        - 摘要保留独立阅读所需的信息；综合评估只解释各维度的重要分歧及其原因，不重抄摘要；
+          投资建议聚焦判断成立的条件与后续行动，不再重述一遍公司优势。
+        - 跨章节复核公司资产/业务数量、数据日期与口径，以及判断的轻重程度；
+          材料有冲突时指出冲突并降低结论确定性，不在摘要和正文里各选一种说法。
         不要包含任何代码块标记，如```markdown或```，直接输出纯Markdown内容。
         
         使用专业的金融语言，但保持可读性。报告应该全面且深入，包含足够的细节和数据支持，
@@ -463,7 +473,15 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         
         # 使用正则表达式截断"分析基准时间"那一行之后的内容
         final_report = truncate_report_at_baseline_time(final_report, current_time_info)
-        final_report = require_analysis_text(final_report)
+        final_report = polish_report_markdown(require_analysis_text(final_report))
+        validate_executive_summary(final_report)
+        missing_dimensions = tuple(
+            label for key, label in (
+                ("fundamental", "基本面"), ("technical", "技术面"),
+                ("value", "估值面"), ("news", "新闻面"),
+            ) if f"{key}_analysis" not in available
+        )
+        final_report = add_summary_identity(final_report, company_name, stock_code, current_date, missing_dimensions)
 
         # 在一级标题后插入 [TOC] 目录
         final_report = re.sub(r'^(#[^#].*)$', r'\1\n\n[TOC]', final_report, count=1, flags=re.MULTILINE)

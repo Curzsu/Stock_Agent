@@ -3405,21 +3405,7 @@
     }
 
     function formatAnalysisMarkdown(value) {
-      const escaped = escapeReportHtml(value).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      return escaped.split(/\n\s*\n/).map((block) => {
-        const text = block.trim();
-        if (!text) return '';
-        const heading = text.match(/^(#{1,4})\s+(.+)$/s);
-        if (heading) {
-          const level = Math.min(4, heading[1].length + 1);
-          return `<h${level}>${heading[2].replace(/\n/g, ' ')}</h${level}>`;
-        }
-        const lines = text.split('\n');
-        if (lines.every((line) => /^[-*]\s+/.test(line))) {
-          return `<ul>${lines.map((line) => `<li>${line.replace(/^[-*]\s+/, '')}</li>`).join('')}</ul>`;
-        }
-        return `<p>${text.replace(/\n/g, '<br>')}</p>`;
-      }).join('');
+      return FinexWorkbench.formatAnalysisMarkdown(value);
     }
 
     function renderWorkbenchReportContent(result, content, navigation) {

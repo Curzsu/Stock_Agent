@@ -5,6 +5,23 @@
 \usepackage{fvextra}
 \usepackage{newunicodechar}
 \usepackage{needspace}
+% Measure the new summary page before shipping it. Never clip research text or
+% silently shrink a page that does not fit; old summaries remain breakable.
+\newsavebox{\FinexExecutiveBox}
+\newenvironment{FinexExecutivePage}{%
+  \clearpage
+  \begin{lrbox}{\FinexExecutiveBox}\begin{minipage}{\textwidth}%
+  \setstretch{1.15}\fontsize{10.5}{14}\selectfont
+  \setlength{\parskip}{5pt}%
+}{%
+  \end{minipage}\end{lrbox}%
+  \ifdim\dimexpr\ht\FinexExecutiveBox+\dp\FinexExecutiveBox\relax>\textheight
+    \PackageError{finex-summary}{Executive summary exceeds one page}%
+      {Rewrite the summary more concisely. No content has been clipped.}%
+  \fi
+  \noindent\usebox{\FinexExecutiveBox}\par
+  \clearpage
+}
 % Eisvogel loads mdframed after this header. TikZ gives the notes real rounded
 % corners and a quiet paper shadow while retaining mdframed's page breaks.
 \PassOptionsToPackage{framemethod=tikz}{mdframed}

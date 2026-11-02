@@ -2,6 +2,7 @@
 import json
 import shutil
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -33,6 +34,40 @@ class ReportLayoutTests(unittest.TestCase):
         result = subprocess.run(command, input=source, capture_output=True, text=True, encoding="utf-8", timeout=20, check=True)
         return json.loads(result.stdout) if output == "json" else result.stdout
 
+    def test_generation_validation_cannot_accept_headings_that_bypass_single_page_layout(self):
+        sys.path.insert(0, str(ROOT / "agents"))
+        from src.utils.executive_summary import add_summary_identity, validate_executive_summary
+        from src.utils.pdf_styles import prepare_report
+        source = (ROOT / "tests/fixtures/executive_summary.md").read_text(encoding="utf-8")
+        for heading in ("  ## 摘要", "- Outline\n  ## 摘要", "Intro\n## 摘要"):
+            report = source.replace("## 摘要", heading)
+            with self.subTest(heading=heading), self.assertRaisesRegex(ValueError, "摘要"):
+                validate_executive_summary(report)
+        validate_executive_summary(source)
+        prepared = prepare_report(add_summary_identity(source, "示例公司", "600000", "2026-11-02"))
+        latex = self.render(prepared.markdown, "latex")
+        self.assertEqual(latex.count(r"\begin{FinexExecutivePage}"), 1)
+        self.assertLess(latex.index("数据边界"), latex.index(r"\end{FinexExecutivePage}"))
+        self.assertLess(latex.index(r"\end{FinexExecutivePage}"), latex.index("公司概况"))
+
+    def test_new_summary_is_grouped_as_one_page_with_the_body_after_it(self):
+        source = '# 摘要\n\n研究对象：示例公司（600000），2026-11-02。\n\n> 核心判断。\n\n- 经营证据。\n- 风险与观察。\n\n数据边界：新闻缺失。\n\n# 公司概况\n\n正文。'
+        latex = self.render(source, "latex")
+        self.assertEqual(latex.count(r"\begin{FinexExecutivePage}"), 1)
+        self.assertEqual(latex.count(r"\end{FinexExecutivePage}"), 1)
+        start, end = latex.index(r"\begin{FinexExecutivePage}"), latex.index(r"\end{FinexExecutivePage}")
+        self.assertLess(start, latex.index("摘要"))
+        self.assertLess(latex.index("数据边界"), end)
+        self.assertLess(end, latex.index("公司概况"))
+        self.assertIn(r"\begin{FinexSummary}", latex)
+
+    def test_summary_at_end_is_closed_and_legacy_summaries_stay_breakable(self):
+        latex = self.render('# 正文\n\n前文。\n\n# 摘要\n\n> 核心判断。\n\n数据边界。', "latex")
+        self.assertIn(r"\end{FinexExecutivePage}", latex)
+        self.assertLess(latex.index("数据边界"), latex.index(r"\end{FinexExecutivePage}"))
+        legacy = self.render('# 执行摘要\n\n旧摘要。\n\n# 公司概况\n\n正文。', "latex")
+        self.assertNotIn("FinexExecutivePage", legacy)
+
     def test_emphasis_preserves_existing_bold_code_math_and_link_targets(self):
         doc = self.render('ROE为6.75%，毛利率57.89%，市盈率（PE）21.09倍。\n\n**MACD**，SOME_PEOPLE，`ROE=1`，$PE=2$，[来源](https://example.com/ROE?PE=1)。\n\n```text\nROE 3%\n```')
         strong = nodes(doc, "Strong")
@@ -53,6 +88,20 @@ class ReportLayoutTests(unittest.TestCase):
         self.assertEqual(len(nodes(doc, "BulletList")), 1)
         self.assertEqual(nodes(doc, "Link")[0]["c"][2][0], "https://example.com/report")
         self.assertIn("160%", self.render(source, "plain"))
+
+    def test_row_labels_drop_redundant_observation_prefix_but_keep_names_and_data(self):
+        source = '# 估值分析\n\n- **观察项：主流估值指标：** PE 20.10倍。\n- **观察项: 历史与同行比较：** [来源](https://example.com)。\n- **股息收益率：** 3.3%。'
+        plain = self.render(source, "plain")
+        self.assertEqual(plain.count('观察项'), 1)  # Column heading only.
+        for text in ('主流估值指标', '历史与同行比较', '股息收益率', '20.10', '3.3%'):
+            self.assertIn(text, plain)
+        self.assertEqual(len(nodes(self.render(source), "Link")), 1)
+
+    def test_summary_display_name_keeps_single_page_for_new_and_previous_titles(self):
+        for title in ('摘要', '一页摘要'):
+            latex = self.render(f'# {title}\n\n> 判断。\n\n# 公司概况\n\n正文。', 'latex')
+            self.assertIn(r'\begin{FinexExecutivePage}', latex)
+            self.assertNotIn('一页摘要', latex)
 
     def test_both_ends_of_value_ranges_are_emphasized_and_dates_stay_plain(self):
         doc = self.render('参考价格27.80-29.40元；股息3.17%至3.5%。\n\n区间为27.80 - 29.40元，日期2026-10-31。')

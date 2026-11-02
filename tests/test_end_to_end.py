@@ -30,6 +30,9 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "agents"))
 
 from langchain_core.messages import AIMessage
 
+with open(os.path.join(PROJECT_ROOT, "tests", "fixtures", "executive_summary.md"), encoding="utf-8") as _fixture:
+    SUMMARY_REPORT = _fixture.read()
+
 
 # ----------------------------------------------------------------------------
 # 环境与 state 构造
@@ -87,7 +90,7 @@ async def _fake_get_mcp_tools():
     return [MagicMock(name="fake_tool")]
 
 
-def _make_fake_llm(report_content="这是模拟综合报告内容", llm_calls=None, report_message=None):
+def _make_fake_llm(report_content=SUMMARY_REPORT, llm_calls=None, report_message=None):
     """
     造一个假 summary LLM：ChatOpenAI(...) 的返回值。
     summary_agent 调 await llm.ainvoke(messages) 并取 .content。
@@ -163,7 +166,7 @@ def _patch_analysis_agents(contents=None, failures=None):
     return patchers
 
 
-def _patch_summary(report_content="这是模拟综合报告内容", report_message=None):
+def _patch_summary(report_content=SUMMARY_REPORT, report_message=None):
     """
     patch summary_agent 的 ChatOpenAI 与 generate_pdf_background。
     返回 (patchers, llm_calls) -- llm_calls 记录 summary 是否真的调了 LLM。
@@ -226,13 +229,13 @@ class TestEndToEnd(unittest.TestCase):
         from src.agents.summary_agent import summary_agent
 
         analysis_patchers = _patch_analysis_agents(contents={
-            "src.agents.fundamental_agent": "基本面模拟分析：财务稳健，ROE 15%。",
+            "src.agents.fundamental_agent": "基本面模拟分析：财务稳健，加权平均净资产收益率 **roeAvg** 为15%。",
             "src.agents.technical_agent": "技术面模拟分析：MACD 金叉，RSI 55。",
             "src.agents.value_agent": "估值模拟分析：PE 15 倍，低于行业均值。",
             "src.agents.news_agent": "新闻模拟分析：近期利好，机构上调评级。",
         })
         summary_patchers, llm_calls = _patch_summary(
-            report_content="# 贵州茅台(sh.600519) 综合分析报告\n\n## 执行摘要\n模拟综合报告。"
+            report_content=SUMMARY_REPORT.replace("当前PE为20倍", "peTTM为20倍")
         )
         result_keys = []
 
@@ -264,6 +267,10 @@ class TestEndToEnd(unittest.TestCase):
         self.assertIn("value_analysis", data)
         self.assertIn("news_analysis", data)
         self.assertIn("基本面", data["fundamental_analysis"])
+        self.assertNotIn("roeAvg", data["fundamental_analysis"])
+        self.assertIn("15%", data["fundamental_analysis"])
+        self.assertNotIn("peTTM", data["final_report"])
+        self.assertIn("市盈率（TTM）为20倍", data["final_report"])
         self.assertIn("技术面", data["technical_analysis"])
         self.assertIn("估值", data["value_analysis"])
         self.assertIn("新闻", data["news_analysis"])
@@ -340,7 +347,7 @@ class TestEndToEnd(unittest.TestCase):
         from src.agents.summary_agent import summary_agent
         responses = [
             AIMessage(content="unfinished", response_metadata={"finish_reason": "length"}),
-            AIMessage(content="# 综合报告\n\n完整报告。", response_metadata={"finish_reason": "stop"}),
+            AIMessage(content=SUMMARY_REPORT, response_metadata={"finish_reason": "stop"}),
         ]
         calls = []
 
@@ -406,7 +413,7 @@ class TestEndToEnd(unittest.TestCase):
             },
         )
         summary_patchers, llm_calls = _patch_summary(
-            report_content="# 综合分析报告（含部分分析缺失）\n\n## 执行摘要\n降级报告。"
+            report_content=SUMMARY_REPORT
         )
 
         try:

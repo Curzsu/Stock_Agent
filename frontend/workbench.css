@@ -601,6 +601,8 @@
 #reportNavigation a { padding: 8px 10px; border-left: 2px solid rgba(128,97,39,.18); color: var(--wb-muted); text-decoration: none; font: 500 11px/1.45 var(--wb-serif); }
 #reportNavigation a:hover { color: var(--wb-gold); border-color: var(--wb-gold); }
 .workbench-report .report-content { max-width: none; padding: 0; color: var(--wb-ink); font-family: var(--wb-serif); font-size: 14px; line-height: 1.9; }
+.workbench-report .report-text blockquote { margin: 16px 0; padding: 14px 18px; border-left: 3px solid var(--wb-green); border-radius: 0 12px 12px 0; background: rgba(112,143,113,.08); }
+.workbench-report .report-text blockquote p { margin: 0; }
 .workbench-report .report-actions { grid-column: 1 / -1; }
 
 @media (max-width: 1120px) {

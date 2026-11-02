@@ -15,6 +15,7 @@ from src.utils.agent_config import REACT_RECURSION_LIMIT, REACT_TIMEOUT_SECONDS,
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
 from src.utils.execution_logger import get_execution_logger
 from src.utils.agent_output import extract_analysis_text
+from src.utils.report_presentation import REPORT_STYLE_GUIDANCE, polish_report_markdown
 from dotenv import load_dotenv
 
 # 从.env文件加载环境变量
@@ -153,6 +154,7 @@ async def fundamental_agent(state: AgentState) -> AgentState:
 
 请使用可用的工具获取实际数据进行分析，而不是基于假设。如果某些数据无法获取，请尝试使用不同的时间周期或其他工具组合，基于可用信息提供尽可能全面的分析。"""
 
+            agent_input += "\n\n" + REPORT_STYLE_GUIDANCE
             logger.info(f"Agent input: {agent_input}")
 
             # 5. 调用ReAct Agent - 使用正确的messages格式
@@ -189,7 +191,7 @@ async def fundamental_agent(state: AgentState) -> AgentState:
                 f"ReAct agent execution completed in {execution_time:.2f} seconds")
 
             # 6. 提取分析结果
-            final_output = extract_analysis_text(response)
+            final_output = polish_report_markdown(extract_analysis_text(response))
 
             logger.info(
                 f"Final extracted analysis length: {len(final_output)} characters")

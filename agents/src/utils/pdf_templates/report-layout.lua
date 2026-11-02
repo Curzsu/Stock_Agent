@@ -121,8 +121,16 @@ local function labeled_table(list)
     if #item ~= 1 or (item[1].t ~= 'Plain' and item[1].t ~= 'Para') then return nil end
     local inline = item[1].content
     if #inline < 2 or inline[1].t ~= 'Strong' then return nil end
-    local label = pandoc.utils.stringify(inline[1])
     local label_inlines = pandoc.Inlines(inline[1].content)
+    -- Old reports may prefix an already descriptive row name with 观察项.
+    local first = label_inlines[1]
+    if first and first.t == 'Str' then
+      local cleaned = first.text:gsub('^观察项：%s*', ''):gsub('^观察项:%s*', '')
+      if cleaned == '' then label_inlines:remove(1)
+      else label_inlines[1] = pandoc.Str(cleaned) end
+      while #label_inlines > 0 and label_inlines[1].t == 'Space' do label_inlines:remove(1) end
+    end
+    local label = pandoc.utils.stringify(label_inlines)
     local value = pandoc.List()
     for i = 2, #inline do value:insert(inline[i]) end
     while #value > 0 and value[1].t == 'Space' do value:remove(1) end
@@ -165,6 +173,7 @@ end
 
 function Pandoc(doc)
   local blocks, section, summary_done = pandoc.List(), '', false
+  local executive_open = false
   local level
   -- The converter removes the report title, but retain headings in standalone use.
   for _, block in ipairs(doc.blocks) do
@@ -172,8 +181,20 @@ function Pandoc(doc)
   end
   for _, block in ipairs(doc.blocks) do
     if block.t == 'Header' and block.level == level then
+      if executive_open then
+        blocks:insert(pandoc.RawBlock('latex', '\\end{FinexExecutivePage}'))
+        executive_open = false
+      end
       section = pandoc.utils.stringify(block)
+      if section == '一页摘要' then
+        block.content = pandoc.Inlines({pandoc.Str('摘要')})
+        section = '摘要'
+      end
       summary_done = false
+      if section == '摘要' then
+        blocks:insert(pandoc.RawBlock('latex', '\\begin{FinexExecutivePage}'))
+        executive_open = true
+      end
     end
     local is_summary = section:find('摘要', 1, true) ~= nil
     local is_risk = section:find('风险', 1, true) ~= nil
@@ -184,7 +205,7 @@ function Pandoc(doc)
     if block.t == 'BulletList' and is_table_section then block = labeled_table(block) or block end
     -- Never put a longtable, figure or raw content inside a breakable frame.
     local summary_safe = block.t == 'Para' or (block.t == 'BlockQuote' and #block.content == 1 and block.content[1].t == 'Para')
-    if is_summary and not summary_done and summary_safe then
+    if is_summary and not summary_done and summary_safe and (not executive_open or block.t == 'BlockQuote') then
       blocks:extend(panel(block, 'FinexSummary'))
       summary_done = true
     elseif is_risk and (block.t == 'Para' or block.t == 'BulletList' or block.t == 'OrderedList') then
@@ -195,6 +216,7 @@ function Pandoc(doc)
       blocks:insert(block)
     end
   end
+  if executive_open then blocks:insert(pandoc.RawBlock('latex', '\\end{FinexExecutivePage}')) end
   doc.blocks = pandoc.Div(blocks):walk({
     traverse = 'topdown',
     Strong = function(el) return el, false end,
