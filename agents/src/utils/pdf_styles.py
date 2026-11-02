@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
+from src.utils.report_presentation import polish_report_markdown
+
 
 _STOCK_CODE_RE = re.compile(r"[（(](?:s[hz]\.)?(\d{5,6})[)）]")
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*$")
@@ -73,7 +75,7 @@ def prepare_report(
     analysis_date: str = "",
 ) -> ReportDocument:
     """Use native Pandoc Markdown for tables, equations, lists and links."""
-    title, markdown = _prepare_markdown(md_content)
+    title, markdown = _prepare_markdown(polish_report_markdown(md_content))
     info = extract_title_info(title)
     company = company_name or info["company_name"] or "金融分析报告"
     code = stock_code or info["stock_code"]

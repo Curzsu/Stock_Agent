@@ -24,6 +24,13 @@ and link targets. Summary/risk blocks use breakable pastel panels, while fully
 labeled lists in fundamentals, valuation and recommendations become two-column
 tables. Unstructured lists retain their original form; no report facts are added.
 
+The exact new section title `摘要` gets a dedicated page. Its identity and
+coverage notice stay above the conclusion card; the remaining research bullets
+and data boundaries remain plain, readable text. `FinexExecutivePage` measures
+the complete section at 10.5pt before output and fails explicitly if it exceeds
+the page height, rather than clipping or scaling it. The following section starts
+on a new page. Legacy `执行摘要` sections retain their breakable layout.
+
 `assets/finex-crayon-cover.png` is the full-page crayon illustration derived from
 the user's reference: a blonde girl with a high bun, black bow, and a
 charcoal-and-cream penguin jacket, waving from the lower right. It is a required,

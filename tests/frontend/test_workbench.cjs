@@ -14,7 +14,26 @@ const {
   stripLeadingMarkdownHeading,
   agentSummaryForStatus,
   canRetryAgent,
+  formatAnalysisMarkdown,
 } = require('../../frontend/workbench.js');
+
+test('one-page summary renders the conclusion as a quote and preserves evidence bullets safely', () => {
+  const html = formatAnalysisMarkdown('## 摘要\n\n**研究对象：** 示例公司（600000）\n\n> **核心判断：** <script>alert(1)</script>\n> 仍需验证。\n\n- **风险：** 现金流走弱。\n- **观察：** 下期财报。');
+  assert.ok(html.includes('<h3>摘要</h3>'));
+  assert.ok(html.includes('<blockquote>'));
+  assert.ok(html.includes('<strong>核心判断：</strong>'));
+  assert.ok(html.includes('&lt;script&gt;'));
+  assert.ok(!html.includes('<script>'));
+  assert.ok(!html.includes('&gt; <strong>核心判断'));
+  assert.ok(html.includes('<li><strong>风险：</strong> 现金流走弱。</li>'));
+});
+
+test('report source TOC markers are hidden without deleting literal code examples', () => {
+  const html = formatAnalysisMarkdown('[TOC]\n\n## 摘要\n\n内容。\n\n```text\n[TOC]\n```');
+  assert.equal((html.match(/\[TOC\]/g) || []).length, 1);
+  assert.ok(html.includes('<h3>摘要</h3>'));
+  assert.ok(html.includes('内容。'));
+});
 
 test('derivePhase distinguishes partial and summarizing states', () => {
   assert.equal(derivePhase({

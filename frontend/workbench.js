@@ -107,6 +107,41 @@
     };
   }
 
+  function formatAnalysisMarkdown(value) {
+    let fence = null;
+    const source = String(value || '').split('\n').filter((line) => {
+      const marker = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (marker) {
+        if (!fence) fence = marker[1];
+        else if (marker[1][0] === fence[0] && marker[1].length >= fence.length && !line.slice(marker[0].length).trim()) fence = null;
+        return true;
+      }
+      return fence || !/^ {0,3}\[TOC\]\s*$/i.test(line);
+    }).join('\n');
+    const escaped = source
+      .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;').replaceAll("'", '&#039;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    return escaped.split(/\n\s*\n/).map((block) => {
+      const text = block.trim();
+      if (!text) return '';
+      const heading = text.match(/^(#{1,4})\s+(.+)$/s);
+      if (heading) {
+        const level = Math.min(4, heading[1].length + 1);
+        const title = heading[2].trim() === '一页摘要' ? '摘要' : heading[2].replace(/\n/g, ' ');
+        return `<h${level}>${title}</h${level}>`;
+      }
+      const lines = text.split('\n');
+      if (lines.every((line) => /^&gt;(?:\s|$)/.test(line))) {
+        return `<blockquote><p>${lines.map((line) => line.replace(/^&gt;\s?/, '')).join('<br>')}</p></blockquote>`;
+      }
+      if (lines.every((line) => /^[-*]\s+/.test(line))) {
+        return `<ul>${lines.map((line) => `<li>${line.replace(/^[-*]\s+/, '')}</li>`).join('')}</ul>`;
+      }
+      return `<p>${text.replace(/\n/g, '<br>')}</p>`;
+    }).join('');
+  }
+
   function stripLeadingMarkdownHeading(value) {
     return String(value == null ? '' : value)
       .replace(/^\s*#{1,6}\s+[^\r\n]+(?:\r?\n\s*)?/, '')
@@ -408,6 +443,7 @@
     canRetryAgent,
     resolveChartSize,
     stripLeadingMarkdownHeading,
+    formatAnalysisMarkdown,
     createController,
   };
 });
