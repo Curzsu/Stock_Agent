@@ -78,19 +78,25 @@ htmlcov/
 .superpowers/
 .mcp_cache/
 
-# Local AI skills and planning documents
-/.zcode/skills/
+# ========================================
+# Local AI Assistant Configuration & Memory
+# ========================================
+/.claude/
+/.workbuddy/
+/.zcode/
 /docs/superpowers/
+
+# ========================================
+# Local Runtime & Tooling
+# ========================================
+/.worktrees/
+/.tools/
+/.runtime/
 
 # ========================================
 # Node.js (if frontend uses npm/yarn)
 # ========================================
 node_modules/
-.worktrees/
-.tools/
-.runtime/
-tmp/pdfs/
-output/pdf/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -107,6 +113,7 @@ yarn-error.log*
 # ========================================
 # Temporary Files
 # ========================================
+/tmp/
 *.tmp
 *.temp
 *.bak
@@ -122,9 +129,10 @@ nul
 # *.json.bak
 
 # ========================================
-# Reports (optional - uncomment if needed)
+# Generated Reports & Previews
 # ========================================
-agents/reports/
+/agents/reports/
+/output/
 # reports/
 # *.pdf
 # *.md.backup
