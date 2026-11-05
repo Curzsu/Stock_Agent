@@ -1878,6 +1878,7 @@
       .history-grid .history-card { flex-basis: 82%; }
     }
   </style>
+  <link rel="preload" href="/static/assets/fonts/FINEXRound-Regular.woff" as="font" type="font/woff" crossorigin>
   <link rel="stylesheet" href="/static/workbench.css">
 </head>
 <body>
@@ -1999,23 +2000,6 @@
     </div>
   </section>
 
-  <!-- HISTORY SECTION (暖色背景块 + 轮播) -->
-  <section class="history-section landing-section" id="historySection">
-    <div class="history-container">
-      <div class="section-header reveal">
-        <h2 class="section-title">历史报告</h2>
-        <span class="section-count" id="historyCount">0 份报告</span>
-      </div>
-      <div class="history-carousel-wrap reveal">
-        <button class="carousel-btn carousel-prev" id="historyPrev" aria-label="上一页" title="上一页">‹</button>
-        <div class="history-grid" id="historyGrid">
-          <!-- 动态渲染 -->
-        </div>
-        <button class="carousel-btn carousel-next" id="historyNext" aria-label="下一页" title="下一页">›</button>
-      </div>
-    </div>
-  </section>
-
   <!-- HOW IT WORKS SECTION -->
   <section class="how-section landing-section" id="howSection">
     <div class="how-container">
@@ -2050,29 +2034,51 @@
   </section>
 
   <!-- FAQ SECTION -->
-  <section class="faq-section landing-section" id="faqSection">
+  <section class="faq-section landing-section" id="faqSection" aria-labelledby="faqTitle">
     <div class="faq-container">
       <div class="faq-header reveal">
         <span class="faq-eyebrow">FAQ</span>
-        <h2 class="faq-title">常见问题</h2>
+        <h2 class="faq-title" id="faqTitle">常见问题</h2>
+        <p class="faq-description">了解数据来源、分析流程与报告使用。</p>
       </div>
 
-      <details class="faq-item reveal">
-        <summary>分析的数据来源是什么？<span class="faq-chevron">⌄</span></summary>
-        <div class="faq-answer">行情与财务数据来自 baostock 等公开数据源，由各智能体在分析时实时抓取，并结合公开财报与新闻信息。</div>
-      </details>
-      <details class="faq-item reveal">
-        <summary>分析包含哪些维度？<span class="faq-chevron">⌄</span></summary>
-        <div class="faq-answer">包含基本面（财务指标、盈利能力）、技术面（价格趋势、交易量）、估值（市盈率、内在价值）和新闻舆情四个维度，并汇总为综合研判。</div>
-      </details>
-      <details class="faq-item reveal">
-        <summary>如何使用本系统？<span class="faq-chevron">⌄</span></summary>
-        <div class="faq-answer">在首页输入公司名称或股票代码，点击「分析」即可。无需注册，配置好 API Key 后即可使用多智能体分析能力。</div>
-      </details>
-      <details class="faq-item reveal">
-        <summary>分析需要多长时间？<span class="faq-chevron">⌄</span></summary>
-        <div class="faq-answer">通常几十秒内完成。后台采用并行智能体，分析页会实时展示各环节进度。</div>
-      </details>
+      <div class="faq-list">
+        <details class="faq-item reveal">
+          <summary>分析的数据来源是什么？<span class="faq-chevron" aria-hidden="true"></span></summary>
+          <div class="faq-answer">行情与财务数据来自 baostock 等公开数据源，由各智能体在分析时实时抓取，并结合公开财报与新闻信息。</div>
+        </details>
+        <details class="faq-item reveal">
+          <summary>分析包含哪些维度？<span class="faq-chevron" aria-hidden="true"></span></summary>
+          <div class="faq-answer">包含基本面（财务指标、盈利能力）、技术面（价格趋势、交易量）、估值（市盈率、内在价值）和新闻舆情四个维度，并汇总为综合研判。</div>
+        </details>
+        <details class="faq-item reveal">
+          <summary>如何使用本系统？<span class="faq-chevron" aria-hidden="true"></span></summary>
+          <div class="faq-answer">在首页输入公司名称或股票代码，点击「分析」即可。无需注册，配置好 API Key 后即可使用多智能体分析能力。</div>
+        </details>
+        <details class="faq-item reveal">
+          <summary>分析需要多长时间？<span class="faq-chevron" aria-hidden="true"></span></summary>
+          <div class="faq-answer">通常几十秒内完成。后台采用并行智能体，分析页会实时展示各环节进度。</div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTORY SECTION -->
+  <section class="history-section landing-section" id="historySection">
+    <div class="history-container">
+      <div class="section-header reveal">
+        <h2 class="section-title">历史报告</h2>
+        <div class="history-controls" role="group" aria-label="历史报告翻页">
+          <span class="section-count" id="historyCount">0 份报告</span>
+          <button class="carousel-btn carousel-prev" id="historyPrev" type="button" aria-label="上一页" aria-controls="historyGrid" title="上一页" disabled>‹</button>
+          <button class="carousel-btn carousel-next" id="historyNext" type="button" aria-label="下一页" aria-controls="historyGrid" title="下一页" disabled>›</button>
+        </div>
+      </div>
+      <div class="history-carousel-wrap reveal">
+        <div class="history-grid" id="historyGrid">
+          <!-- 动态渲染 -->
+        </div>
+      </div>
     </div>
   </section>
 
@@ -2081,23 +2087,21 @@
     <div class="cta-container reveal">
       <h2 class="cta-title">开始你的智能投资分析</h2>
       <p class="cta-sub">输入任意 A 股标的，几分钟内获得一份专业级、多维度、可下载的深度研究报告。</p>
-      <button class="cta-btn" id="ctaAnalyzeBtn">开始分析 <span>→</span></button>
+      <button class="cta-btn" id="ctaAnalyzeBtn">开始分析</button>
     </div>
   </section>
 
   <!-- STOCK ANALYSIS WORKBENCH -->
   <section class="analysis-section workbench-section" id="analysisSection">
-    <div class="workbench-ambient workbench-ambient-one" aria-hidden="true"></div>
-    <div class="workbench-ambient workbench-ambient-two" aria-hidden="true"></div>
     <div class="analysis-workbench" id="analysisWorkbench">
       <header class="workbench-masthead">
         <button class="workbench-back" id="backBtn" type="button" aria-label="返回首页">
           <span aria-hidden="true">←</span><span>返回</span>
         </button>
         <div class="workbench-heading">
-          <span class="workbench-eyebrow">FINEX RESEARCH · MULTI-AGENT DESK</span>
+          <span class="workbench-eyebrow">FINEX / 研究工作台</span>
           <h1>正在研究 <span id="analyzingStock">股票标的</span></h1>
-          <p>五位分析师正在协同研究，每项完成后即时呈现阶段摘要。</p>
+          <p>把复杂的线索，慢慢理清楚。</p>
         </div>
         <div class="workbench-meta" aria-live="polite">
           <span class="workbench-time" id="elapsedTime">00:00</span>
@@ -2107,68 +2111,65 @@
       </header>
 
       <div class="workbench-layout" id="workbenchRunningState">
+        <div class="workspace-intro">
+          <div><h2>研究协同台</h2></div>
+          <span class="workspace-caption" id="completedCount">0 / 5 已完成</span>
+        </div>
         <main class="agent-workspace">
-          <div class="workspace-intro">
-            <div><span class="section-index">01</span><h2>研究协同台</h2></div>
-            <span class="workspace-caption" id="completedCount">0 / 5 已完成</span>
-          </div>
           <div class="agent-grid agents-grid" id="agentGrid">
             <article class="workbench-agent-card agent-card" data-agent="fundamental" data-status="waiting">
-              <div class="agent-card-top"><span class="agent-number">01</span><span class="agent-discipline">FINANCIALS</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
-              <div class="agent-card-title"><span class="agent-monogram">基</span><div><h3>基本面分析师</h3><p>财务质量 · 盈利能力 · 经营韧性</p></div></div>
+              <div class="agent-card-top"><span class="agent-number">01</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
+              <div class="agent-card-title"><div><h3>基本面分析师</h3><p>财务质量 · 盈利能力 · 经营韧性</p></div></div>
               <p class="agent-summary">等待研究任务进入队列。</p>
-              <div class="agent-microchart micro-bars" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
               <button class="agent-retry" type="button" hidden>重试基本面分析</button>
             </article>
 
             <article class="workbench-agent-card agent-card" data-agent="technical" data-status="waiting">
-              <div class="agent-card-top"><span class="agent-number">02</span><span class="agent-discipline">TECHNICALS</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
-              <div class="agent-card-title"><span class="agent-monogram">技</span><div><h3>技术面分析师</h3><p>价格趋势 · 成交动能 · 关键区间</p></div></div>
+              <div class="agent-card-top"><span class="agent-number">02</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
+              <div class="agent-card-title"><div><h3>技术面分析师</h3><p>价格趋势 · 成交动能 · 关键区间</p></div></div>
               <p class="agent-summary">等待研究任务进入队列。</p>
-              <div class="agent-microchart micro-trend" aria-hidden="true"><svg viewBox="0 0 320 88" preserveAspectRatio="none"><path class="micro-grid" d="M0 22H320M0 44H320M0 66H320"/><path class="micro-line-soft" d="M0 66 C42 62 55 37 92 45 S151 59 184 30 S245 14 320 24"/><path class="micro-line" d="M0 72 C35 68 64 54 95 58 S146 34 178 43 S236 23 268 28 S298 18 320 12"/></svg></div>
               <button class="agent-retry" type="button" hidden>重试技术面分析</button>
             </article>
 
             <article class="workbench-agent-card agent-card" data-agent="value" data-status="waiting">
-              <div class="agent-card-top"><span class="agent-number">03</span><span class="agent-discipline">VALUATION</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
-              <div class="agent-card-title"><span class="agent-monogram">估</span><div><h3>估值分析师</h3><p>历史分位 · 行业对照 · 安全边际</p></div></div>
+              <div class="agent-card-top"><span class="agent-number">03</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
+              <div class="agent-card-title"><div><h3>估值分析师</h3><p>历史分位 · 行业对照 · 安全边际</p></div></div>
               <p class="agent-summary">等待研究任务进入队列。</p>
-              <div class="agent-microchart micro-valuation" aria-hidden="true"><div class="valuation-orbit"><span></span></div><div class="valuation-rules"><i></i><i></i><i></i></div></div>
               <button class="agent-retry" type="button" hidden>重试估值分析</button>
             </article>
 
             <article class="workbench-agent-card agent-card" data-agent="news" data-status="waiting">
-              <div class="agent-card-top"><span class="agent-number">04</span><span class="agent-discipline">INTELLIGENCE</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
-              <div class="agent-card-title"><span class="agent-monogram">闻</span><div><h3>新闻分析师</h3><p>市场叙事 · 事件追踪 · 风险信号</p></div></div>
+              <div class="agent-card-top"><span class="agent-number">04</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待</span></span></div>
+              <div class="agent-card-title"><div><h3>新闻分析师</h3><p>市场叙事 · 事件追踪 · 风险信号</p></div></div>
               <p class="agent-summary">等待研究任务进入队列。</p>
-              <div class="agent-microchart micro-news" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><svg viewBox="0 0 320 88" preserveAspectRatio="none"><path d="M25 50L84 22L143 57L210 29L291 46M84 22L210 29M143 57L291 46"/></svg></div>
               <button class="agent-retry" type="button" hidden>重试新闻分析</button>
-            </article>
-
-            <article class="workbench-agent-card agent-card agent-card-summary" data-agent="summary" data-status="waiting">
-              <div class="agent-card-top"><span class="agent-number">05</span><span class="agent-discipline">SYNTHESIS</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待前置研究</span></span></div>
-              <div class="summary-card-layout">
-                <div><div class="agent-card-title"><span class="agent-monogram">综</span><div><h3>综合研判</h3><p>交叉验证 · 核心结论 · 风险边界</p></div></div><p class="agent-summary">四路研究完成后，将在此生成综合结论。</p></div>
-                <div class="agent-microchart agent-summary-chart" aria-hidden="true"><div class="synthesis-core">FINEX</div><span class="orbit-node node-one"></span><span class="orbit-node node-two"></span><span class="orbit-node node-three"></span><span class="orbit-node node-four"></span></div>
-              </div>
-              <button class="agent-retry" type="button" hidden>重试汇总</button>
             </article>
           </div>
         </main>
 
-        <aside class="market-overview">
-          <div class="market-header"><div><span class="section-index">02</span><h2>行情概览</h2></div><span id="marketTradeDate">等待标的识别</span></div>
-          <div class="market-quote" id="marketQuote"><strong>—</strong><span>真实历史行情</span></div>
-          <div class="market-periods" aria-label="K 线周期">
-            <button type="button" data-frequency="d" aria-pressed="true">日 K</button>
-            <button type="button" data-frequency="w" aria-pressed="false">周 K</button>
-            <button type="button" data-frequency="m" aria-pressed="false">月 K</button>
+        <article class="workbench-agent-card agent-card agent-card-summary" aria-label="综合研判" data-agent="summary" data-status="waiting">
+          <div class="agent-card-top"><span class="agent-number">05</span><span class="agent-status"><i class="status-indicator-dot"></i><span class="status-text">等待前置研究</span></span></div>
+          <div class="summary-card-layout">
+            <div><div class="agent-card-title"><div><h3>综合研判</h3><p>交叉验证 · 核心结论 · 风险边界</p></div></div><p class="agent-summary">四路研究完成后，将在此生成综合结论。</p></div>
+          </div>
+          <button class="agent-retry" type="button" hidden>重试汇总</button>
+        </article>
+
+        <section class="market-overview" aria-labelledby="marketOverviewTitle">
+          <div class="market-header"><div><h2 id="marketOverviewTitle">行情概览</h2></div><span id="marketTradeDate">等待标的识别</span></div>
+          <div class="market-toolbar">
+            <div class="market-quote" id="marketQuote"><strong>—</strong><span>真实历史行情</span></div>
+            <div class="market-periods" aria-label="K 线周期">
+              <button type="button" data-frequency="d" aria-pressed="true">日 K</button>
+              <button type="button" data-frequency="w" aria-pressed="false">周 K</button>
+              <button type="button" data-frequency="m" aria-pressed="false">月 K</button>
+            </div>
           </div>
           <div id="workbenchMarketChart" class="workbench-market-chart" role="img" aria-label="个股行情图加载中"><div class="market-loading"><i></i><span>识别股票后载入真实 K 线</span></div></div>
           <div class="market-legend" aria-label="图表图例"><span class="legend-candle">K 线</span><span class="legend-ma5">MA5</span><span class="legend-ma20">MA20</span><span class="legend-volume">成交量</span></div>
           <dl class="market-metrics" id="marketMetrics"><div><dt>市盈率 TTM</dt><dd>—</dd></div><div><dt>市净率 MRQ</dt><dd>—</dd></div><div><dt>换手率</dt><dd>—</dd></div><div><dt>成交量</dt><dd>—</dd></div></dl>
           <p class="market-footnote">数据来自 BaoStock，展示最近交易日收盘行情，并非实时价格。</p>
-        </aside>
+        </section>
       </div>
 
       <div class="report-section workbench-report-shell" id="reportSection">
@@ -2632,11 +2633,24 @@
     const historyGridEl = document.getElementById('historyGrid');
     const historyPrevBtn = document.getElementById('historyPrev');
     const historyNextBtn = document.getElementById('historyNext');
-    if (historyGridEl && historyPrevBtn) {
-      historyPrevBtn.addEventListener('click', () => historyGridEl.scrollBy({ left: -360, behavior: 'smooth' }));
-    }
-    if (historyGridEl && historyNextBtn) {
-      historyNextBtn.addEventListener('click', () => historyGridEl.scrollBy({ left: 360, behavior: 'smooth' }));
+    if (historyGridEl && historyPrevBtn && historyNextBtn) {
+      function syncHistoryNavigation() {
+        const maxScroll = Math.max(0, historyGridEl.scrollWidth - historyGridEl.clientWidth);
+        historyPrevBtn.disabled = historyGridEl.scrollLeft <= 1;
+        historyNextBtn.disabled = historyGridEl.scrollLeft >= maxScroll - 1;
+      }
+      function scrollHistory(direction) {
+        const card = historyGridEl.querySelector('.history-card');
+        const gap = parseFloat(getComputedStyle(historyGridEl).columnGap) || 0;
+        const step = card ? card.getBoundingClientRect().width + gap : historyGridEl.clientWidth;
+        historyGridEl.scrollBy({ left: direction * step, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+      }
+      historyPrevBtn.addEventListener('click', () => scrollHistory(-1));
+      historyNextBtn.addEventListener('click', () => scrollHistory(1));
+      historyGridEl.addEventListener('scroll', syncHistoryNavigation, { passive: true });
+      new ResizeObserver(syncHistoryNavigation).observe(historyGridEl);
+      new MutationObserver(syncHistoryNavigation).observe(historyGridEl, { childList: true });
+      syncHistoryNavigation();
     }
 
     // 配置 API Key 按钮

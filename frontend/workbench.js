@@ -402,7 +402,7 @@
         );
         chart = chartLibrary.createChart(marketChartElement, {
           ...chartSize,
-          layout: { background: { color: 'transparent' }, textColor: '#74695b' },
+          layout: { background: { color: 'transparent' }, textColor: '#74695b', fontFamily: '"DM Sans", "FINEX Round", sans-serif' },
           grid: { vertLines: { color: 'rgba(83,64,41,.06)' }, horzLines: { color: 'rgba(83,64,41,.06)' } },
           rightPriceScale: { borderColor: 'rgba(83,64,41,.16)' },
           timeScale: { borderColor: 'rgba(83,64,41,.16)' },

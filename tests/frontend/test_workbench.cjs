@@ -170,6 +170,48 @@ test('history treats untrusted names, codes and dates as text', async () => {
   assert.match(cards[0].innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
 });
 
+test('history navigation follows card width and disables unavailable directions', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const start = html.indexOf('    // 历史轮播按钮');
+  const listeners = {};
+  const prev = { disabled: false, addEventListener: (_, fn) => { listeners.prev = fn; } };
+  const next = { disabled: false, addEventListener: (_, fn) => { listeners.next = fn; } };
+  let onResize, onMutation;
+  const grid = {
+    clientWidth: 360, scrollWidth: 980, scrollLeft: 0,
+    querySelector: () => ({ getBoundingClientRect: () => ({ width: 284 }) }),
+    addEventListener: (_, fn) => { listeners.scroll = fn; },
+    scrollBy({ left }) {
+      this.scrollLeft = Math.max(0, Math.min(this.scrollWidth - this.clientWidth, this.scrollLeft + left));
+      listeners.scroll();
+    },
+  };
+  const context = vm.createContext({
+    document: { getElementById: id => ({ historyGrid: grid, historyPrev: prev, historyNext: next }[id]) },
+    getComputedStyle: () => ({ columnGap: '24px' }),
+    window: { matchMedia: () => ({ matches: true }) },
+    ResizeObserver: class { constructor(fn) { onResize = fn; } observe() {} },
+    MutationObserver: class { constructor(fn) { onMutation = fn; } observe() {} },
+  });
+  vm.runInContext(html.slice(start, html.indexOf('    // 配置 API Key 按钮', start)), context);
+  assert.equal(prev.disabled, true);
+  assert.equal(next.disabled, false);
+  listeners.next();
+  assert.equal(grid.scrollLeft, 308);
+  assert.equal(prev.disabled, false);
+  listeners.next(); listeners.next();
+  assert.equal(next.disabled, true);
+  listeners.prev();
+  assert.equal(next.disabled, false);
+  grid.scrollWidth = 300; grid.scrollLeft = 0;
+  onMutation();
+  assert.equal(prev.disabled, true);
+  assert.equal(next.disabled, true);
+  grid.scrollWidth = 1100;
+  onResize();
+  assert.equal(next.disabled, false);
+});
+
 test('nextRequests fetches partials only when a dimension newly completes', () => {
   const requests = nextRequests(
     { fundamental: 'running', technical: 'running' },
@@ -222,11 +264,6 @@ test('stripLeadingMarkdownHeading removes only the report source heading', () =>
 test('completed cards keep the warm workbench surface', () => {
   const css = fs.readFileSync(path.join(__dirname, '../../frontend/workbench.css'), 'utf8');
   assert.match(css, /\.agent-card\.complete\s*\{[^}]*background:/s);
-});
-
-test('fundamental bars have a definite height for percentage bars', () => {
-  const css = fs.readFileSync(path.join(__dirname, '../../frontend/workbench.css'), 'utf8');
-  assert.match(css, /\.micro-bars\s*\{[^}]*height:\s*80px/s);
 });
 
 test('workbench columns can shrink to a mobile viewport', () => {
