@@ -108,38 +108,126 @@
   }
 
   function formatAnalysisMarkdown(value) {
-    let fence = null;
-    const source = String(value || '').split('\n').filter((line) => {
-      const marker = line.match(/^ {0,3}(`{3,}|~{3,})/);
-      if (marker) {
-        if (!fence) fence = marker[1];
-        else if (marker[1][0] === fence[0] && marker[1].length >= fence.length && !line.slice(marker[0].length).trim()) fence = null;
-        return true;
-      }
-      return fence || !/^ {0,3}\[TOC\]\s*$/i.test(line);
-    }).join('\n');
-    const escaped = source
+    const escape = (text) => String(text)
       .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;').replaceAll("'", '&#039;')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    return escaped.split(/\n\s*\n/).map((block) => {
-      const text = block.trim();
-      if (!text) return '';
-      const heading = text.match(/^(#{1,4})\s+(.+)$/s);
-      if (heading) {
-        const level = Math.min(4, heading[1].length + 1);
-        const title = heading[2].trim() === '一页摘要' ? '摘要' : heading[2].replace(/\n/g, ' ');
-        return `<h${level}>${title}</h${level}>`;
+      .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+    // Parse literals before emphasis so code and link destinations stay intact.
+    const inline = (text) => {
+      const token = /(`+)([\s\S]*?)\1|\[([^\]\n]+)\]\(([^\s()]*(?:\([^\s()]*\)[^\s()]*)*)\)/g;
+      const emphasis = (part) => escape(part).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      let html = '', offset = 0;
+      for (const match of text.matchAll(token)) {
+        html += emphasis(text.slice(offset, match.index));
+        if (match[1]) html += `<code>${escape(match[2])}</code>`;
+        else if (/^(?:https?:\/\/|mailto:|#)/i.test(match[4])) {
+          html += `<a href="${escape(match[4])}" target="_blank" rel="noopener noreferrer">${emphasis(match[3])}</a>`;
+        } else html += emphasis(match[3]);
+        offset = match.index + match[0].length;
       }
-      const lines = text.split('\n');
-      if (lines.every((line) => /^&gt;(?:\s|$)/.test(line))) {
-        return `<blockquote><p>${lines.map((line) => line.replace(/^&gt;\s?/, '')).join('<br>')}</p></blockquote>`;
+      return html + emphasis(text.slice(offset));
+    };
+    const cells = (line) => {
+      const parts = [];
+      let cell = '', code = '';
+      for (let i = 0; i < line.length; i++) {
+        if (line[i] === '\\' && line[i + 1] === '|') { cell += '|'; i++; }
+        else if (line[i] === '`') {
+          const ticks = line.slice(i).match(/^`+/)[0];
+          code = code === ticks ? '' : (code || ticks);
+          cell += ticks;
+          i += ticks.length - 1;
+        } else if (line[i] === '|' && !code) { parts.push(cell.trim()); cell = ''; }
+        else cell += line[i];
       }
-      if (lines.every((line) => /^[-*]\s+/.test(line))) {
-        return `<ul>${lines.map((line) => `<li>${line.replace(/^[-*]\s+/, '')}</li>`).join('')}</ul>`;
+      parts.push(cell.trim());
+      if (!parts[0]) parts.shift();
+      if (!parts[parts.length - 1]) parts.pop();
+      return parts;
+    };
+    const lines = String(value || '').replace(/\r\n?/g, '\n').split('\n');
+    const listItem = (line) => line.match(/^(\s*)([-+*]|\d+[.)])\s+(.*)$/);
+    const isRule = (line) => /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line);
+    const isTable = (index) => {
+      if (!lines[index]?.includes('|') || !lines[index + 1]?.includes('|')) return false;
+      const header = cells(lines[index]), separators = cells(lines[index + 1]);
+      return header.length > 0 && header.length === separators.length
+        && separators.every((cell) => /^:?-{3,}:?$/.test(cell));
+    };
+    const isBlock = (index) => /^(?: {0,3}#{1,6}\s|\s*>| {0,3}(?:`{3,}|~{3,})| {0,3}\[TOC\]\s*$)/i.test(lines[index])
+      || isRule(lines[index]) || listItem(lines[index]) || isTable(index);
+    let index = 0;
+    const renderList = (indent) => {
+      const first = listItem(lines[index]);
+      const ordered = /^\d/.test(first[2]);
+      const tag = ordered ? 'ol' : 'ul';
+      const start = ordered && parseInt(first[2], 10) !== 1 ? ` start="${parseInt(first[2], 10)}"` : '';
+      let html = `<${tag}${start}>`;
+      while (index < lines.length) {
+        const item = listItem(lines[index]);
+        if (!item || item[1].length !== indent || /^\d/.test(item[2]) !== ordered) break;
+        html += `<li>${inline(item[3])}`;
+        index++;
+        while (index < lines.length && lines[index].trim()) {
+          const next = listItem(lines[index]);
+          if (next && next[1].length > indent) html += renderList(next[1].length);
+          else if (!next && /^\s+/.test(lines[index]) && !isBlock(index)) {
+            html += `<br>${inline(lines[index++].trim())}`;
+          } else break;
+        }
+        html += '</li>';
+        if (!lines[index]?.trim() && listItem(lines[index + 1] || '')?.[1].length === indent) index++;
       }
-      return `<p>${text.replace(/\n/g, '<br>')}</p>`;
-    }).join('');
+      return `${html}</${tag}>`;
+    };
+    let html = '';
+    while (index < lines.length) {
+      const line = lines[index];
+      if (!line.trim() || /^ {0,3}\[TOC\]\s*$/i.test(line)) { index++; continue; }
+      const fence = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (fence) {
+        const code = [];
+        index++;
+        while (index < lines.length) {
+          const close = lines[index].match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+          if (close && close[1][0] === fence[1][0] && close[1].length >= fence[1].length) { index++; break; }
+          code.push(lines[index++]);
+        }
+        html += `<pre><code>${escape(code.join('\n'))}</code></pre>`;
+      } else if (/^ {0,3}#{1,6}\s+\S/.test(line)) {
+        const [, marks, text] = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+        const level = Math.min(4, marks.length + 1);
+        html += `<h${level}>${inline(text === '一页摘要' ? '摘要' : text)}</h${level}>`;
+        index++;
+      } else if (isTable(index)) {
+        const header = cells(line);
+        const alignment = cells(lines[index + 1]).map((cell) => cell.endsWith(':') ? (cell.startsWith(':') ? 'center' : 'right') : '');
+        const attr = (column) => alignment[column] ? ` class="align-${alignment[column]}"` : '';
+        html += '<div class="report-table-scroll" role="region" aria-label="报告数据表，可横向滚动" tabindex="0"><table><thead><tr>';
+        html += header.map((cell, column) => `<th scope="col"${attr(column)}>${inline(cell)}</th>`).join('');
+        html += '</tr></thead><tbody>';
+        index += 2;
+        while (index < lines.length && lines[index].trim() && lines[index].includes('|') && !isRule(lines[index])) {
+          const row = cells(lines[index++]);
+          html += '<tr>' + header.map((_, column) => `<td${attr(column)}>${inline(row[column] || '')}</td>`).join('') + '</tr>';
+        }
+        html += '</tbody></table></div>';
+      } else if (isRule(line)) {
+        html += '<hr>';
+        index++;
+      } else if (/^\s*>/.test(line)) {
+        const quote = [];
+        while (index < lines.length && /^\s*>/.test(lines[index])) quote.push(lines[index++].replace(/^\s*>\s?/, ''));
+        html += `<blockquote>${formatAnalysisMarkdown(quote.join('\n'))}</blockquote>`;
+      } else if (listItem(line)) {
+        html += renderList(listItem(line)[1].length);
+      } else {
+        const paragraph = [inline(line.trim())];
+        index++;
+        while (index < lines.length && lines[index].trim() && !isBlock(index)) paragraph.push(inline(lines[index++].trim()));
+        html += `<p>${paragraph.join('<br>')}</p>`;
+      }
+    }
+    return html;
   }
 
   function stripLeadingMarkdownHeading(value) {

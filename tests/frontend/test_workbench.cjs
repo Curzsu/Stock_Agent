@@ -35,6 +35,43 @@ test('report source TOC markers are hidden without deleting literal code example
   assert.ok(html.includes('内容。'));
 });
 
+test('financial Markdown tables render semantic cells and preserve values and alignment', () => {
+  const html = formatAnalysisMarkdown('## 财务指标\n| 指标 | 数值 | 解读 |\n| :--- | ---: | :---: |\n| **ROE** | **15.99%** | 保持稳健 |\n| 净利润 | 349.49亿元 | 同比改善 |');
+  assert.match(html, /<h3>财务指标<\/h3>/);
+  assert.match(html, /<table>/);
+  assert.match(html, /<th scope="col"[^>]*>数值<\/th>/);
+  assert.match(html, /<td class="align-right"><strong>15.99%<\/strong><\/td>/);
+  assert.match(html, /349\.49亿元/);
+  assert.doesNotMatch(html, /<br>\|/);
+});
+
+test('headings, ordered risks and wrapped nested lists do not require blank lines', () => {
+  const html = formatAnalysisMarkdown('### 风险因素\n1. **来水风险**：发电量下降。\n   需持续关注流域来水。\n2. 利率上行。\n   - 观察国债收益率。\n   - 观察分红变化。\n\n后续观察。\n---\n#### 数据来源\n公开财报。');
+  assert.match(html, /<h4>风险因素<\/h4><ol/);
+  assert.match(html, /来水风险<\/strong>：发电量下降。.*需持续关注流域来水。/);
+  assert.match(html, /<li>利率上行。<ul><li>观察国债收益率。<\/li><li>观察分红变化。<\/li><\/ul><\/li>/);
+  assert.match(html, /<p>后续观察。<\/p><hr><h4>数据来源<\/h4><p>公开财报。<\/p>/);
+});
+
+test('report links are readable but HTML and unsafe link protocols stay inert', () => {
+  const html = formatAnalysisMarkdown('[财报](https://example.com/report?a=1&b=2) 与 [危险链接](javascript:alert(1))\n\n<img src=x onerror=alert(1)>');
+  assert.match(html, /<a href="https:\/\/example.com\/report\?a=1&amp;b=2"[^>]*>财报<\/a>/);
+  assert.doesNotMatch(html, /href="javascript:|<img|<script/);
+  assert.match(html, /&lt;img/);
+});
+
+test('fenced and inline code preserve literal Markdown and table pipes', () => {
+  const html = formatAnalysisMarkdown('```text\n## 标题\n**ROE** <script>\n[TOC]\n```\n\n`**peTTM**`\n\n| 指标 | 说明 |\n| --- | --- |\n| `a|b` | A\\|B |');
+  assert.match(html, /<pre><code>## 标题\n\*\*ROE\*\* &lt;script&gt;\n\[TOC\]<\/code><\/pre>/);
+  assert.match(html, /<code>\*\*peTTM\*\*<\/code>/);
+  assert.match(html, /<td><code>a\|b<\/code><\/td><td>A\|B<\/td>/);
+});
+
+test('empty headings in a generated response do not abort report rendering', () => {
+  const html = formatAnalysisMarkdown('## \n\n后续内容。');
+  assert.match(html, /<p>后续内容。<\/p>/);
+});
+
 test('derivePhase distinguishes partial and summarizing states', () => {
   assert.equal(derivePhase({
     status: 'running',
