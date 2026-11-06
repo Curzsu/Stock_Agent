@@ -3,6 +3,7 @@ import asyncio
 import sys
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -15,12 +16,13 @@ sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "agents"))
 
 from backend import server
+from src.utils import pdf_converter
 
 
 class TestAnalysisSessionApi(unittest.TestCase):
     def setUp(self):
         server.analysis_sessions.clear()
-        self.client = TestClient(server.app)
+        self.client = TestClient(server.app, base_url="http://localhost", client=("127.0.0.1", 50000))
         self.session = server.AnalysisStatus(
             analysis_id="session1",
             status="running",
@@ -339,6 +341,161 @@ class TestAnalysisSessionApi(unittest.TestCase):
                     self.assertEqual(self.session.status, "error")
                 else:
                     self.assertEqual(self.session.status, "degraded")
+
+    def test_delete_completed_analysis_removes_session_and_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report_file = Path(directory) / "report_test.md"
+            report_file.write_text("# 研报内容", encoding="utf-8")
+            pdf_file = Path(directory) / "report_test.pdf"
+            pdf_file.write_bytes(b"%PDF-1.7 ...")
+            status_file = pdf_file.with_suffix(".pdf.status.json")
+            status_file.write_text('{"status": "ready"}', encoding="utf-8")
+            log_file = pdf_file.with_suffix(".pdf.log")
+            log_file.write_text("ok", encoding="utf-8")
+
+            self.session.status = "completed"
+            self.session.result = {
+                "report_path": str(report_file),
+                "pdf_path": str(pdf_file),
+                "company_name": "测试股份",
+                "stock_code": "600519",
+            }
+
+            response = self.client.delete("/api/history/session1")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "deleted")
+            self.assertEqual(response.json()["analysis_id"], "session1")
+
+            # Verify session is deleted from memory
+            self.assertNotIn("session1", server.analysis_sessions)
+
+            # Verify disk files were removed
+            self.assertFalse(report_file.exists())
+            self.assertFalse(pdf_file.exists())
+            self.assertFalse(status_file.exists())
+            self.assertFalse(log_file.exists())
+
+    def test_delete_running_or_pending_analysis_returns_409(self):
+        self.session.status = "running"
+        response = self.client.delete("/api/history/session1")
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("进行中", response.json()["detail"])
+        self.assertIn("session1", server.analysis_sessions)
+
+        self.session.status = "pending"
+        response2 = self.client.delete("/api/history/session1")
+        self.assertEqual(response2.status_code, 409)
+        self.assertIn("session1", server.analysis_sessions)
+
+    def test_delete_nonexistent_analysis_returns_404(self):
+        response = self.client.delete("/api/history/nonexistent_id")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Analysis not found")
+
+    def test_delete_removes_from_history_endpoint(self):
+        self.session.status = "completed"
+        self.session.result = {"company_name": "测试企业", "stock_code": "000001"}
+        history_before = self.client.get("/api/history").json()["history"]
+        self.assertTrue(any(item["analysis_id"] == "session1" for item in history_before))
+
+        response = self.client.delete("/api/history/session1")
+        self.assertEqual(response.status_code, 200)
+
+        history_after = self.client.get("/api/history").json()["history"]
+        self.assertFalse(any(item["analysis_id"] == "session1" for item in history_after))
+
+    def test_delete_via_alternative_analysis_path(self):
+        self.session.status = "completed"
+        response = self.client.delete("/api/analysis/session1")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("session1", server.analysis_sessions)
+
+    def test_delete_rejects_remote_clients_and_foreign_origins(self):
+        self.session.status = "completed"
+        for route in ("/api/history/session1", "/api/analysis/session1"):
+            for host, url, origin in (
+                ("192.168.1.20", "http://localhost", None),
+                ("127.0.0.1", "http://localhost", "https://example.com"),
+                ("127.0.0.1", "http://attacker.example", None),
+            ):
+                with self.subTest(route=route, host=host, origin=origin):
+                    server.analysis_sessions["session1"] = self.session
+                    client = TestClient(server.app, base_url=url, client=(host, 50000))
+                    response = client.delete(route, headers={"Origin": origin} if origin else {})
+                    self.assertEqual(response.status_code, 403)
+                    self.assertIn("session1", server.analysis_sessions)
+
+    def test_delete_accepts_same_origin_local_page(self):
+        self.session.status = "completed"
+        response = self.client.delete("/api/history/session1", headers={"Origin": "http://localhost"})
+        self.assertEqual(response.status_code, 200)
+
+    def test_delete_file_failure_preserves_history_for_retry(self):
+        for blocked_name in ("report.pdf", "report.pdf.status.json", "report.pdf.log", "report.md"):
+            with self.subTest(blocked=blocked_name), tempfile.TemporaryDirectory() as directory:
+                paths = [Path(directory) / name for name in
+                         ("report.pdf", "report.pdf.status.json", "report.pdf.log", "report.md")]
+                for path in paths:
+                    path.write_text("content", encoding="utf-8")
+                self.session.status = "completed"
+                self.session.result = {"report_path": str(paths[-1]), "pdf_path": str(paths[0])}
+                server.analysis_sessions["session1"] = self.session
+                original_unlink = Path.unlink
+                def unlink(path, *args, **kwargs):
+                    if path.name == blocked_name:
+                        raise PermissionError("file in use")
+                    return original_unlink(path, *args, **kwargs)
+                # Cover both removal APIs used by the original implementation.
+                original_remove = os.remove
+                def remove(path, *args, **kwargs):
+                    if Path(path).name == blocked_name:
+                        raise PermissionError("file in use")
+                    return original_remove(path, *args, **kwargs)
+                with patch.object(Path, "unlink", unlink), patch.object(os, "remove", remove):
+                    response = self.client.delete("/api/history/session1")
+                self.assertEqual(response.status_code, 500)
+                self.assertIn("session1", server.analysis_sessions)
+                self.assertTrue((Path(directory) / blocked_name).exists())
+                self.assertEqual(self.client.delete("/api/history/session1").status_code, 200)
+                self.assertFalse(any(path.exists() for path in paths))
+
+    def test_delete_waits_for_background_pdf_before_removing_files(self):
+        async def scenario(directory):
+            report = Path(directory) / "report.md"
+            report.write_text("report", encoding="utf-8")
+            pdf = report.with_suffix(".pdf")
+            self.session.status = "completed"
+            self.session.result = {"report_path": str(report)}
+            entered, release = threading.Event(), threading.Event()
+            def render(*args):
+                entered.set()
+                if not release.wait(5):
+                    raise RuntimeError("test PDF worker timed out")
+                pdf.write_bytes(b"%PDF-content")
+                return str(pdf)
+            with patch.object(pdf_converter, "convert_md_to_pdf", render):
+                task = pdf_converter.start_pdf_generation(str(report), {})
+                try:
+                    # The queued job must block deletion even before it starts.
+                    with self.assertRaises(server.HTTPException) as queued:
+                        await server.delete_analysis_history("session1")
+                    self.assertEqual(queued.exception.status_code, 409)
+                    self.assertTrue(await asyncio.to_thread(entered.wait, 5))
+                    with self.assertRaises(server.HTTPException) as caught:
+                        await server.delete_analysis_history("session1")
+                    self.assertEqual(caught.exception.status_code, 409)
+                    self.assertTrue(report.exists())
+                    self.assertIn("session1", server.analysis_sessions)
+                finally:
+                    release.set()
+                    await task
+                self.assertTrue(pdf.exists())
+                response = await server.delete_analysis_history("session1")
+                self.assertEqual(response["status"], "deleted")
+                self.assertFalse(pdf.exists())
+                self.assertFalse(report.exists())
+        with tempfile.TemporaryDirectory() as directory:
+            asyncio.run(scenario(directory))
 
 
 if __name__ == "__main__":

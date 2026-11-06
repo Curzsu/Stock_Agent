@@ -932,6 +932,39 @@
       overflow: hidden;
     }
 
+    .history-card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 1rem;
+      padding-top: 0.75rem;
+      border-top: 1px dashed rgba(0, 0, 0, 0.08);
+    }
+
+    .history-card-delete-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--gray-500);
+      font-family: var(--font-body);
+      font-size: 0.8125rem;
+      padding: 0.3rem 0.65rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.25s var(--ease-out-expo);
+      flex-shrink: 0;
+    }
+
+    .history-card-delete-btn:hover {
+      background: rgba(192, 57, 43, 0.08);
+      color: #c0392b;
+      border-color: rgba(192, 57, 43, 0.25);
+      transform: scale(1.05);
+    }
+
     /* ========================================
        ANALYSIS SECTION (深色背景 + 液态玻璃)
        ======================================== */
@@ -1440,6 +1473,20 @@
     .report-btn-secondary:hover {
       border-color: var(--black);
       color: var(--black);
+    }
+
+    .report-btn-danger {
+      background: transparent;
+      color: #c0392b;
+      border: 1px solid rgba(192, 57, 43, 0.35);
+    }
+
+    .report-btn-danger:hover {
+      background: #c0392b;
+      color: var(--white);
+      border-color: #c0392b;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(192, 57, 43, 0.25);
     }
 
     /* ============ 配置 API Key 弹窗 ============ */
@@ -2269,6 +2316,15 @@
           <div class="report-actions">
             <button class="report-btn report-btn-secondary" id="backToHomeBtn" type="button"><span>←</span><span>返回首页</span></button>
             <button class="report-btn report-btn-pdf loading" id="downloadPdfBtn" type="button" disabled><span class="pdf-spinner" id="pdfSpinner"></span><span id="pdfBtnText">正在生成 PDF...</span></button>
+            <button class="report-btn report-btn-danger" id="deleteCurrentReportBtn" type="button" title="删除当前研报">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                <line x1="10" y1="11" x2="10" y2="17"></line>
+                <line x1="14" y1="11" x2="14" y2="17"></line>
+              </svg>
+              <span>删除研报</span>
+            </button>
             <button class="report-btn report-btn-primary" id="newAnalysisBtn" type="button"><span>新分析</span><span>→</span></button>
           </div>
         </div>
@@ -2303,6 +2359,18 @@
         <button class="config-cancel-btn" id="configCancelBtn">取消</button>
         <button class="config-test-btn" id="configTestBtn">测试连通性</button>
         <button class="config-save-btn" id="configSaveBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 删除研报确认弹窗 -->
+  <div class="config-modal-overlay hidden" id="deleteModalOverlay">
+    <div class="config-modal" id="deleteModal">
+      <h2 class="config-modal-title" style="color: #c0392b;">删除历史研报</h2>
+      <p class="config-modal-desc" id="deleteModalDesc" style="margin-bottom: 1.5rem; line-height: 1.6; color: var(--gray-600);">确定要删除该份研报吗？删除后相关文件将被彻底清除，且无法恢复。</p>
+      <div class="config-actions" style="justify-content: flex-end; gap: 0.75rem;">
+        <button class="config-cancel-btn" id="deleteCancelBtn" type="button">取消</button>
+        <button class="config-save-btn" id="deleteConfirmBtn" type="button" style="background: #e74c3c; color: #fff;">确认删除</button>
       </div>
     </div>
   </div>
@@ -3130,7 +3198,19 @@
               </div>
               <div class="history-card-date">${statusLabel}</div>
             </div>
-            <div class="history-card-excerpt">${escapeReportHtml(item.analysis_date ? item.analysis_date.slice(0, 10) : '-')}</div>
+            <div class="history-card-footer">
+              <div class="history-card-excerpt">${escapeReportHtml(item.analysis_date ? item.analysis_date.slice(0, 10) : '-')}</div>
+              ${!isRunning ? `
+              <button class="history-card-delete-btn" type="button" title="删除研报" aria-label="删除此研报" data-analysis-id="${escapeReportHtml(item.analysis_id)}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  <line x1="10" y1="11" x2="10" y2="17"></line>
+                  <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+                <span>删除</span>
+              </button>` : ''}
+            </div>
           `;
 
           card.addEventListener('click', () => {
@@ -3140,6 +3220,14 @@
               viewCompletedReport(item.analysis_id);
             }
           });
+
+          const deleteBtn = card.querySelector('.history-card-delete-btn');
+          if (deleteBtn) {
+            deleteBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              openDeleteModal(item.analysis_id, item.company_name || item.stock_code || '此研报', false);
+            });
+          }
 
           grid.appendChild(card);
         });
@@ -3253,6 +3341,95 @@
         console.error('Failed to load report:', e);
         await loadCompletedReport({ status: 'completed' }, false);
       }
+    }
+
+    // ============ 删除研报弹窗逻辑 ============
+    let pendingDeleteAnalysisId = null;
+    let pendingDeleteFromReportView = false;
+    const deleteModalOverlay = document.getElementById('deleteModalOverlay');
+    const deleteModalDesc = document.getElementById('deleteModalDesc');
+    const deleteConfirmBtn = document.getElementById('deleteConfirmBtn');
+    const deleteCancelBtn = document.getElementById('deleteCancelBtn');
+
+    function openDeleteModal(analysisId, displayName, isFromReportView = false) {
+      pendingDeleteAnalysisId = analysisId;
+      pendingDeleteFromReportView = isFromReportView;
+      deleteModalDesc.textContent = `确定要删除「${displayName || '该研报'}」吗？删除后相关文件将彻底清除且无法恢复。`;
+      deleteModalOverlay.classList.remove('hidden');
+    }
+
+    function closeDeleteModal() {
+      deleteModalOverlay.classList.add('hidden');
+      pendingDeleteAnalysisId = null;
+      pendingDeleteFromReportView = false;
+    }
+
+    if (deleteCancelBtn) {
+      deleteCancelBtn.addEventListener('click', closeDeleteModal);
+    }
+
+    if (deleteModalOverlay) {
+      let pressedOnOverlay = false;
+      deleteModalOverlay.addEventListener('mousedown', (e) => {
+        pressedOnOverlay = e.target === deleteModalOverlay;
+      });
+      deleteModalOverlay.addEventListener('click', (e) => {
+        if (e.target === deleteModalOverlay && pressedOnOverlay) closeDeleteModal();
+        pressedOnOverlay = false;
+      });
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && deleteModalOverlay && !deleteModalOverlay.classList.contains('hidden')) {
+        closeDeleteModal();
+      }
+    });
+
+    if (deleteConfirmBtn) {
+      deleteConfirmBtn.addEventListener('click', async () => {
+        if (!pendingDeleteAnalysisId) return;
+        const targetId = pendingDeleteAnalysisId;
+        const isFromReport = pendingDeleteFromReportView;
+        deleteConfirmBtn.disabled = true;
+        deleteConfirmBtn.textContent = '正在删除...';
+
+        try {
+          const res = await fetch(`${API_BASE}/history/${targetId}`, {
+            method: 'DELETE',
+          });
+          const data = await res.json().catch(() => ({}));
+
+          if (res.ok) {
+            showConfigToast('研报已成功删除');
+            closeDeleteModal();
+            if (isFromReport || currentAnalysisId === targetId) {
+              if (pdfPollingTimer) clearTimeout(pdfPollingTimer);
+              analysisSection.classList.remove('active');
+              goHome();
+            } else {
+              loadHistory();
+            }
+          } else {
+            showConfigToast(data.detail || '删除失败，请稍后重试', true);
+          }
+        } catch (err) {
+          console.error('Delete report error:', err);
+          showConfigToast('网络错误，删除失败', true);
+        } finally {
+          deleteConfirmBtn.disabled = false;
+          deleteConfirmBtn.textContent = '确认删除';
+        }
+      });
+    }
+
+    // 在报告详情页删除当前报告
+    const deleteCurrentReportBtn = document.getElementById('deleteCurrentReportBtn');
+    if (deleteCurrentReportBtn) {
+      deleteCurrentReportBtn.addEventListener('click', () => {
+        if (!currentAnalysisId) return;
+        const displayName = (currentResult && currentResult.company_name) || currentQuery || '当前研报';
+        openDeleteModal(currentAnalysisId, displayName, true);
+      });
     }
 
     // Demo mode flag - set to false when backend is running

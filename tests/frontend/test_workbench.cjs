@@ -154,7 +154,7 @@ test('history treats untrusted names, codes and dates as text', async () => {
     API_BASE: '/api', console, window: {},
     document: {
       getElementById: (id) => id === 'historyGrid' ? { appendChild: (card) => cards.push(card) } : {},
-      createElement: () => ({ style: {}, addEventListener() {} }),
+      createElement: () => ({ style: {}, addEventListener() {}, querySelector() { return null; } }),
     },
     fetch: async () => ({ json: async () => ({ history: [{
       company_name: '<img src=x onerror=alert(1)>', stock_code: '<svg/onload=alert(1)>',
@@ -166,7 +166,7 @@ test('history treats untrusted names, codes and dates as text', async () => {
   vm.runInContext(functionSource, context);
   await context.loadHistory();
   assert.equal(cards.length, 1);
-  assert.doesNotMatch(cards[0].innerHTML, /<img|<svg/);
+  assert.doesNotMatch(cards[0].innerHTML, /<img|<svg\/onload/);
   assert.match(cards[0].innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
 });
 
@@ -553,7 +553,7 @@ function navigationHarness() {
   context.workbench.reset = () => {};
   context.window.scrollTo = () => {};
   const resume = html.indexOf('    async function resumeAnalysis(');
-  vm.runInContext(html.slice(resume, html.indexOf('    // Demo mode flag', resume)), context);
+  vm.runInContext(html.slice(resume, html.indexOf('    // ============ 删除研报弹窗逻辑', resume)), context);
   const poll = html.indexOf('    async function pollOnceNow()');
   vm.runInContext(html.slice(poll, html.indexOf('    function startFallbackPolling()', poll)), context);
   return harness;

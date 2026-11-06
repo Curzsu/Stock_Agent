@@ -178,7 +178,7 @@ def _patch_summary(report_content=SUMMARY_REPORT, report_message=None):
     ChatOpenAI），不再是 summary_agent 的模块级属性，因此 patch 其源头
     langchain_openai.ChatOpenAI。
     """
-    from src.agents import summary_agent as summary_mod
+    from src.utils import pdf_converter
     import langchain_openai
 
     llm_calls = []
@@ -189,7 +189,7 @@ def _patch_summary(report_content=SUMMARY_REPORT, report_message=None):
     p1 = patch.object(langchain_openai, "ChatOpenAI", new=fake_chat_openai_factory)
     p1.start()
 
-    p2 = patch.object(summary_mod, "generate_pdf_background", _fake_generate_pdf_background)
+    p2 = patch.object(pdf_converter, "generate_pdf_background", _fake_generate_pdf_background)
     p2.start()
 
     return [p1, p2], llm_calls

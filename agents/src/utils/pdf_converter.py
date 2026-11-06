@@ -20,6 +20,28 @@ logger = setup_logger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE_DIR = Path(__file__).with_name("pdf_templates")
 PORTABLE_TOOLS = PROJECT_ROOT / ".tools" / "pdf"
+_pdf_tasks: dict[str, set[asyncio.Task]] = {}
+
+
+def is_pdf_generation_running(md_path: str) -> bool:
+    """Include queued jobs, before their conversion threads have started."""
+    return any(not task.done() for task in _pdf_tasks.get(str(Path(md_path).resolve()), ()))
+
+
+def start_pdf_generation(md_path: str, state_data: dict, **kwargs) -> asyncio.Task:
+    """Register before yielding so completed sessions cannot delete queued PDFs."""
+    key = str(Path(md_path).resolve())
+    task = asyncio.create_task(generate_pdf_background(md_path, state_data, **kwargs))
+    tasks = _pdf_tasks.setdefault(key, set())
+    tasks.add(task)
+
+    def finished(done):
+        tasks.discard(done)
+        if not tasks:
+            _pdf_tasks.pop(key, None)
+
+    task.add_done_callback(finished)
+    return task
 
 
 def derive_pdf_path(md_path: str) -> str:
