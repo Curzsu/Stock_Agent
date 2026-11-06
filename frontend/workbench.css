@@ -1306,18 +1306,6 @@
   border-radius: 21px 26px 22px 28px;
 }
 
-.workbench-report .report-btn-primary {
-  background: transparent;
-}
-
-.workbench-report .report-btn-pdf {
-  background: transparent;
-}
-
-.workbench-report .report-btn-pdf:hover {
-  background: transparent;
-}
-
 .workbench-report .report-content {
   border: 0;
   box-shadow: none;
