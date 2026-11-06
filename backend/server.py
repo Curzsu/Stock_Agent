@@ -851,6 +851,49 @@ async def get_analysis_history():
 
     return {"history": history}
 
+@app.delete("/api/history/{analysis_id}")
+@app.delete("/api/analysis/{analysis_id}")
+async def delete_analysis_history(analysis_id: str):
+    """Delete a historical analysis session and its generated report files."""
+    if analysis_id not in analysis_sessions:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    session = analysis_sessions[analysis_id]
+    if session.status in {"running", "pending"}:
+        raise HTTPException(status_code=409, detail="分析任务正在进行中，无法删除")
+
+    # Clean up generated markdown and PDF files if they exist
+    report_path = (session.result and session.result.get("report_path")) or ""
+    pdf_path = (session.result and session.result.get("pdf_path")) or (derive_pdf_path(report_path) if report_path else "")
+
+    if report_path:
+        try:
+            if os.path.isfile(report_path):
+                os.remove(report_path)
+        except OSError as e:
+            print(f"Warning: Failed to remove markdown report {report_path}: {e}")
+
+    if pdf_path:
+        try:
+            if os.path.isfile(pdf_path):
+                os.remove(pdf_path)
+            pdf_path_obj = Path(pdf_path)
+            status_file = pdf_path_obj.with_suffix(".pdf.status.json")
+            if status_file.is_file():
+                status_file.unlink(missing_ok=True)
+            log_file = pdf_path_obj.with_suffix(".pdf.log")
+            if log_file.is_file():
+                log_file.unlink(missing_ok=True)
+        except OSError as e:
+            print(f"Warning: Failed to remove PDF report files: {e}")
+
+    del analysis_sessions[analysis_id]
+    return {
+        "status": "deleted",
+        "analysis_id": analysis_id,
+        "message": "研报已成功删除"
+    }
+
 @app.get("/api/config", dependencies=[Depends(require_local_config_access)])
 async def get_api_config():
     """返回当前 API 配置(api_key 脱敏显示)。"""

@@ -340,6 +340,74 @@ class TestAnalysisSessionApi(unittest.TestCase):
                 else:
                     self.assertEqual(self.session.status, "degraded")
 
+    def test_delete_completed_analysis_removes_session_and_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report_file = Path(directory) / "report_test.md"
+            report_file.write_text("# 研报内容", encoding="utf-8")
+            pdf_file = Path(directory) / "report_test.pdf"
+            pdf_file.write_bytes(b"%PDF-1.7 ...")
+            status_file = pdf_file.with_suffix(".pdf.status.json")
+            status_file.write_text('{"status": "ready"}', encoding="utf-8")
+            log_file = pdf_file.with_suffix(".pdf.log")
+            log_file.write_text("ok", encoding="utf-8")
+
+            self.session.status = "completed"
+            self.session.result = {
+                "report_path": str(report_file),
+                "pdf_path": str(pdf_file),
+                "company_name": "测试股份",
+                "stock_code": "600519",
+            }
+
+            response = self.client.delete("/api/history/session1")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "deleted")
+            self.assertEqual(response.json()["analysis_id"], "session1")
+
+            # Verify session is deleted from memory
+            self.assertNotIn("session1", server.analysis_sessions)
+
+            # Verify disk files were removed
+            self.assertFalse(report_file.exists())
+            self.assertFalse(pdf_file.exists())
+            self.assertFalse(status_file.exists())
+            self.assertFalse(log_file.exists())
+
+    def test_delete_running_or_pending_analysis_returns_409(self):
+        self.session.status = "running"
+        response = self.client.delete("/api/history/session1")
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("进行中", response.json()["detail"])
+        self.assertIn("session1", server.analysis_sessions)
+
+        self.session.status = "pending"
+        response2 = self.client.delete("/api/history/session1")
+        self.assertEqual(response2.status_code, 409)
+        self.assertIn("session1", server.analysis_sessions)
+
+    def test_delete_nonexistent_analysis_returns_404(self):
+        response = self.client.delete("/api/history/nonexistent_id")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Analysis not found")
+
+    def test_delete_removes_from_history_endpoint(self):
+        self.session.status = "completed"
+        self.session.result = {"company_name": "测试企业", "stock_code": "000001"}
+        history_before = self.client.get("/api/history").json()["history"]
+        self.assertTrue(any(item["analysis_id"] == "session1" for item in history_before))
+
+        response = self.client.delete("/api/history/session1")
+        self.assertEqual(response.status_code, 200)
+
+        history_after = self.client.get("/api/history").json()["history"]
+        self.assertFalse(any(item["analysis_id"] == "session1" for item in history_after))
+
+    def test_delete_via_alternative_analysis_path(self):
+        self.session.status = "completed"
+        response = self.client.delete("/api/analysis/session1")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("session1", server.analysis_sessions)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
