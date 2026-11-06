@@ -675,25 +675,33 @@ async function homepageMarketHarness(response) {
   const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
   const start = html.indexOf('    function initMarketChart()');
   const elements = Object.fromEntries([
-    'marketChart', 'marketSection', 'marketIndexChange', 'marketTradeDateLabel', 'marketDataStatus',
+    'marketChart', 'marketSection', 'marketIndexChange', 'marketTradeDateLabel', 'marketDataStatus', 'marketHistoryLoading', 'marketSelection', 'marketYearLabels', 'marketMAControls',
   ].map((id) => [id, {
-    style: {}, textContent: '', hidden: false, clientWidth: 640, clientHeight: 400,
-    addEventListener() {}, contains() { return false; },
+    style: {}, textContent: '', hidden: id === 'marketHistoryLoading' || id === 'marketSelection', clientWidth: 640, clientHeight: 400, children: [], replaceChildren(...items) { this.children = items; },
+    listeners: {}, addEventListener(type, fn, options) { this.listeners[type + (options && options.capture ? ':capture' : '')] = fn; }, contains() { return false; },
   }]));
   const rendered = { candles: [], volume: [] };
+  const documentListeners = {};
+  const maButtons = [5, 10, 20].map(period => ({ dataset: { period: String(period) }, attributes: { 'aria-pressed': 'true' }, listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; }, getAttribute(name) { return this.attributes[name]; }, setAttribute(name, value) { this.attributes[name] = value; } }));
+  const periodButtons = ['day', 'week', 'month'].map(period => ({ dataset: { period }, attributes: { 'aria-pressed': String(period === 'day') }, listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; }, getAttribute(name) { return this.attributes[name]; }, setAttribute(name, value) { this.attributes[name] = value; } }));
+  rendered.ma = {};
+  let rangeHandler, clickHandler;
+  const scale = { fitContent() {}, subscribeVisibleLogicalRangeChange(fn) { rangeHandler = fn; }, getVisibleLogicalRange() { return rendered.range; }, setVisibleLogicalRange(range) { rendered.range = range; }, timeToCoordinate() { return 200; }, height() { return 26; } };
   const chart = {
     addCandlestickSeries: () => ({ setData: (rows) => { rendered.candles = rows; }, applyOptions() {} }),
     addHistogramSeries: () => ({ setData: (rows) => { rendered.volume = rows; } }),
+    addLineSeries: (options) => { const series = { options, data: [], setData(rows) { this.data = rows; }, applyOptions(next) { Object.assign(this.options, next); } }; rendered.ma[Object.keys(rendered.ma).length === 0 ? 5 : Object.keys(rendered.ma).length === 1 ? 10 : 20] = series; return series; },
     priceScale: () => ({ applyOptions() {} }),
-    timeScale: () => ({ fitContent() {} }), applyOptions() {},
+    timeScale: () => scale, applyOptions() {}, subscribeClick(fn) { clickHandler = fn; },
   };
   const context = vm.createContext({
     API_BASE: '/api', console: { warn() {} },
-    document: { getElementById: (id) => elements[id], addEventListener() {} },
+    document: { getElementById: (id) => elements[id], querySelectorAll: (selector) => selector === '[data-market-period]' ? periodButtons : maButtons, addEventListener(type, fn) { documentListeners[type] = fn; }, createElement() { return { style: {}, textContent: '' }; } },
     window: { matchMedia: () => ({ matches: true }) },
-    LightweightCharts: { createChart: () => chart, CrosshairMode: { Normal: 0 } },
+    LightweightCharts: { createChart: (_, options) => { rendered.chartOptions = options; return chart; }, CrosshairMode: { Normal: 0 } },
     ResizeObserver: class { observe() {} },
-    fetch: async () => {
+    fetch: async (url) => {
+      if (typeof response === 'function') return response(url);
       if (response instanceof Error) throw response;
       return response;
     },
@@ -701,8 +709,251 @@ async function homepageMarketHarness(response) {
   vm.runInContext(html.slice(start, html.indexOf('    // CTA 按钮', start)), context);
   context.initMarketChart();
   await new Promise((resolve) => setImmediate(resolve));
-  return { elements, rendered };
+  return { elements, rendered, maButtons, periodButtons, documentListeners, changeRange: (range) => { rendered.range = range; rangeHandler(range); }, click: (time) => clickHandler({ time }) };
 }
+
+test('switching daily, weekly and monthly candles aggregates OHLC and volume by Shanghai calendar', async () => {
+  const row = (date, open, high, low, close, volume) => ({ time: Date.parse(date + 'T00:00:00+08:00') / 1000, open, high, low, close, volume });
+  const rows = [row('2026-01-02', 10, 12, 9, 11, 10), row('2026-01-05', 11, 15, 10, 14, 20), row('2026-01-06', 14, 16, 12, 13, 30), row('2026-01-12', 13, 20, 11, 19, 40), row('2026-02-02', 19, 22, 18, 21, 50), row('2026-02-03', 21, 23, 20, 22, 60)];
+  const harness = await homepageMarketHarness({ ok: true, json: async () => ({ ok: true, data: rows }) });
+  harness.periodButtons[1].listeners.click();
+  assert.equal(harness.periodButtons[1].getAttribute('aria-pressed'), 'true');
+  assert.equal(harness.periodButtons[0].getAttribute('aria-pressed'), 'false');
+  const week = harness.rendered.candles.find(item => item.time === rows[1].time);
+  assert.deepEqual({ open: week.open, high: week.high, low: week.low, close: week.close }, { open: 11, high: 16, low: 10, close: 13 });
+  assert.equal(harness.rendered.volume.find(item => item.time === rows[1].time).value, 50);
+  harness.periodButtons[2].listeners.click();
+  const month = harness.rendered.candles.find(item => item.time === rows[4].time);
+  assert.deepEqual({ open: month.open, high: month.high, low: month.low, close: month.close }, { open: 19, high: 23, low: 18, close: 22 });
+  assert.equal(harness.rendered.volume.find(item => item.time === rows[4].time).value, 110);
+  harness.periodButtons[0].listeners.click();
+  assert.equal(harness.rendered.candles.length, rows.length);
+});
+
+test('changing periods while older history is loading retains the last selected period', async () => {
+  const row = (date, close) => ({ time: Date.parse(date + 'T00:00:00+08:00') / 1000, open: close, high: close, low: close, close, volume: 10 });
+  const recent = [row('2026-01-05', 10), row('2026-01-06', 11), row('2026-02-02', 12), row('2026-02-03', 13)];
+  let resolveHistory;
+  let calls = 0;
+  const harness = await homepageMarketHarness(async () => {
+    if (++calls === 1) return { ok: true, json: async () => ({ ok: true, data: recent }) };
+    return new Promise(resolve => { resolveHistory = resolve; });
+  });
+  harness.periodButtons[1].listeners.click();
+  harness.periodButtons[2].listeners.click();
+  resolveHistory({ ok: true, json: async () => ({ ok: true, data: [row('2025-12-01', 9), ...recent] }) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(harness.periodButtons[2].getAttribute('aria-pressed'), 'true');
+  assert.equal(harness.rendered.candles.length, 2);
+  assert.equal(harness.rendered.candles[1].close, 13);
+  assert.equal(harness.rendered.volume[1].value, 20);
+});
+
+test('using a moving average control activates chart wheel zoom even over the controls', async () => {
+  const rows = Array.from({ length: 120 }, (_, i) => ({ time: i + 1, open: i + 1, high: i + 1, low: i + 1, close: i + 1, volume: 1 }));
+  const harness = await homepageMarketHarness({ ok: true, json: async () => ({ ok: true, data: rows }) });
+  harness.rendered.range = { from: 30, to: 100 };
+  harness.maButtons[0].listeners.click();
+  let prevented = false;
+  const event = { deltaY: 100, deltaX: 0, deltaMode: 0, preventDefault() { prevented = true; }, stopPropagation() {} };
+  harness.elements.marketMAControls.listeners.wheel(event);
+  assert(prevented);
+  assert(harness.rendered.range.from < 30);
+  assert.equal(harness.rendered.range.to, 100);
+  harness.documentListeners.pointerdown({ target: {} });
+  prevented = false;
+  harness.elements.marketMAControls.listeners.wheel(event);
+  assert.equal(prevented, false);
+});
+
+test('a wheel gesture started outside the chart keeps scrolling the page when it enters the chart', async () => {
+  const rows = Array.from({ length: 120 }, (_, i) => ({ time: i + 1, open: i + 1, high: i + 1, low: i + 1, close: i + 1, volume: 1 }));
+  const harness = await homepageMarketHarness({ ok: true, json: async () => ({ ok: true, data: rows }) });
+  const chartTarget = {};
+  harness.elements.marketChart.contains = target => target === chartTarget;
+  harness.rendered.range = { from: 30, to: 100 };
+  harness.elements.marketChart.listeners.pointerdown();
+  let prevented = false;
+  const event = (target, timeStamp) => ({ target, timeStamp, deltaY: 100, deltaX: 0, deltaMode: 0, preventDefault() { prevented = true; }, stopPropagation() {} });
+  harness.documentListeners.wheel(event({}, 1000));
+  const entering = event(chartTarget, 1050);
+  harness.documentListeners.wheel(entering);
+  harness.elements.marketChart.listeners['wheel:capture'](entering);
+  harness.elements.marketChart.listeners.wheel(entering);
+  assert.equal(prevented, false);
+  assert.equal(harness.rendered.range.from, 30);
+  const fresh = event(chartTarget, 1400);
+  harness.documentListeners.wheel(fresh);
+  harness.elements.marketChart.listeners['wheel:capture'](fresh);
+  assert.equal(prevented, true);
+  assert(harness.rendered.range.from < 30);
+});
+
+test('volume colors reflect the change versus previous close, including flat and missing previous closes', async () => {
+  const closes = [100, 110, 105, 105];
+  const rows = closes.map((close, i) => ({ time: i + 1, open: i === 1 ? 120 : 90, high: 120, low: 90, close, volume: 100 + i }));
+  const harness = await homepageMarketHarness({ ok: true, json: async () => ({ ok: true, data: rows }) });
+  const colors = Array.from(harness.rendered.volume, item => item.color);
+  assert.equal(colors[0], colors[3]);
+  assert.notEqual(colors[1], colors[2]);
+  assert.notEqual(colors[1], colors[0]);
+  assert.notEqual(colors[2], colors[0]);
+  assert.match(colors[1], /176,\s*58,\s*46/);
+  assert.match(colors[2], /30,\s*142,\s*90/);
+});
+
+test('volume colors update when earlier data supplies the previous close', async () => {
+  const row = (time, close) => ({ time, open: close, high: close, low: close, close, volume: 100 });
+  let calls = 0;
+  const harness = await homepageMarketHarness(async () => ({ ok: true, json: async () => ({ ok: true, data: ++calls === 1 ? [row(2, 110), row(3, 100)] : [row(1, 100), row(2, 110), row(3, 100)] }) }));
+  const initial = harness.rendered.volume[0].color;
+  harness.changeRange({ from: 0, to: 1 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.notEqual(harness.rendered.volume[1].color, initial);
+  assert.match(harness.rendered.volume[1].color, /176,\s*58,\s*46/);
+});
+
+test('moving averages use complete trading-day windows and each line can be toggled', async () => {
+  const rows = Array.from({ length: 20 }, (_, i) => ({ time: i + 1, open: i + 1, high: i + 1, low: i + 1, close: i + 1, volume: 1 }));
+  const harness = await homepageMarketHarness({ ok: true, json: async () => ({ ok: true, data: rows }) });
+  assert.equal(harness.rendered.ma[5].data.length, 16);
+  assert.equal(harness.rendered.ma[5].data[0].value, 3);
+  assert.equal(harness.rendered.ma[10].data[0].value, 5.5);
+  assert.equal(harness.rendered.ma[20].data[0].value, 10.5);
+  const toggle = harness.maButtons[0];
+  toggle.listeners.click();
+  assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(harness.rendered.ma[5].options.visible, false);
+  assert.notEqual(harness.rendered.ma[10].options.visible, false);
+  toggle.listeners.click();
+  assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+  assert.equal(harness.rendered.ma[5].options.visible, true);
+});
+
+test('loading older candles recalculates moving averages without changing visibility', async () => {
+  const rows = Array.from({ length: 25 }, (_, i) => ({ time: i + 1, open: i + 1, high: i + 1, low: i + 1, close: i + 1, volume: 1 }));
+  let calls = 0;
+  const harness = await homepageMarketHarness(async () => ({ ok: true, json: async () => ({ ok: true, data: ++calls === 1 ? rows.slice(5) : rows }) }));
+  harness.maButtons[2].listeners.click();
+  assert.equal(harness.rendered.ma[20].data[0].value, 15.5);
+  harness.changeRange({ from: 0, to: 19 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(harness.rendered.ma[20].data[0].time, 20);
+  assert.equal(harness.rendered.ma[20].data[0].value, 10.5);
+  assert.equal(harness.rendered.ma[20].options.visible, false);
+});
+
+test('market timeline distinguishes month and year labels from days', async () => {
+  const row = { time: 1792627200, open: 1, high: 2, low: 1, close: 2, volume: 1 };
+  const harness = await homepageMarketHarness({ ok: true, json: async () => ({ ok: true, data: [row] }) });
+  const format = harness.rendered.chartOptions.timeScale.tickMarkFormatter;
+  assert.equal(format(row.time, 0), '');
+  assert.equal(format(row.time, 1), '10月');
+  assert.equal(format(row.time, 2), null);
+});
+
+test('visible year boundary is displayed in a separate label without brackets', async () => {
+  const row = time => ({ time, open: 1, high: 2, low: 1, close: 2, volume: 1 });
+  const harness = await homepageMarketHarness({ ok: true, json: async () => ({ ok: true, data: [row(1767110400), row(1767283200)] }) });
+  harness.changeRange({ from: 0, to: 1 });
+  assert.equal(harness.elements.marketYearLabels.children[0].textContent, '2026年');
+});
+
+test('clicking a candle shows its daily change versus the previous close', async () => {
+  const rows = [
+    { time: 1792627200, open: 100, high: 103, low: 98, close: 100, volume: 1 },
+    { time: 1792713600, open: 104, high: 110, low: 100, close: 105, volume: 1 },
+    { time: 1792800000, open: 105, high: 106, low: 99, close: 102, volume: 1 },
+  ];
+  const harness = await homepageMarketHarness({ ok: true, json: async () => ({ ok: true, data: rows }) });
+  harness.click(rows[1].time);
+  assert.equal(harness.elements.marketSelection.hidden, false);
+  assert.match(harness.elements.marketSelection.textContent, /2026-10-23.*\+5\.00%/);
+  harness.click(rows[2].time);
+  assert.match(harness.elements.marketSelection.textContent, /-2\.86%/);
+  harness.click(rows[0].time);
+  assert.match(harness.elements.marketSelection.textContent, /涨跌幅暂缺/);
+});
+
+test('focused wheel zoom out keeps the right edge fixed and expands toward earlier dates', async () => {
+  const row = (time) => ({ time, open: 1, high: 2, low: 1, close: 2, volume: 1 });
+  const harness = await homepageMarketHarness({ ok: true, json: async () => ({ ok: true, data: [row(1), row(2)] }) });
+  harness.rendered.range = { from: 20, to: 100 };
+  harness.elements.marketChart.listeners.pointerdown();
+  let prevented = false, stopped = false;
+  harness.elements.marketChart.listeners['wheel:capture']({ deltaY: 100, deltaX: 0, deltaMode: 0, preventDefault() { prevented = true; }, stopPropagation() { stopped = true; } });
+  assert.equal(harness.rendered.range.to, 100);
+  assert(harness.rendered.range.from < 20);
+  assert(prevented && stopped);
+});
+
+test('panning into the future is clamped while panning toward history remains possible', async () => {
+  const row = (time) => ({ time, open: 1, high: 2, low: 1, close: 2, volume: 1 });
+  const harness = await homepageMarketHarness({ ok: true, json: async () => ({ ok: true, data: Array.from({ length: 100 }, (_, i) => row(i + 1)) }) });
+  harness.changeRange({ from: 70, to: 120 });
+  assert.equal(harness.rendered.range.to, 99.5);
+  assert.equal(harness.rendered.range.from, 49.5);
+  harness.changeRange({ from: 30, to: 80 });
+  assert.equal(harness.rendered.range.to, 80);
+  assert.equal(harness.rendered.range.from, 30);
+});
+
+test('zooming out near the oldest candle loads older history and preserves the visible dates', async () => {
+  const row = (time) => ({ time, open: 1, high: 2, low: 1, close: 2, volume: 1 });
+  const calls = [];
+  const harness = await homepageMarketHarness(async (url) => {
+    calls.push(url);
+    return { ok: true, json: async () => ({ ok: true, data: calls.length === 1 ? [row(3), row(4)] : [row(1), row(2), row(3), row(4)] }) };
+  });
+  harness.changeRange({ from: -2, to: 2 });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.length, 2);
+  assert.deepEqual(Array.from(harness.rendered.candles, row => row.time), [1, 2, 3, 4]);
+  assert.equal(harness.rendered.range.from, -0.5);
+  assert.equal(harness.rendered.range.to, 3.5);
+});
+
+test('older history requests do not overlap and stop when the provider has no earlier data', async () => {
+  const row = (time) => ({ time, open: 1, high: 2, low: 1, close: 2, volume: 1 });
+  let resolveHistory;
+  let calls = 0;
+  const harness = await homepageMarketHarness(async () => {
+    calls++;
+    if (calls === 1) return { ok: true, json: async () => ({ ok: true, data: [row(3), row(4)] }) };
+    return new Promise(resolve => { resolveHistory = resolve; });
+  });
+  harness.changeRange({ from: -1, to: 2 });
+  harness.changeRange({ from: -2, to: 2 });
+  assert.equal(calls, 2);
+  assert.equal(harness.elements.marketHistoryLoading.hidden, false);
+  resolveHistory({ ok: true, json: async () => ({ ok: true, data: [row(3), row(4)] }) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(harness.elements.marketHistoryLoading.hidden, true);
+  harness.changeRange({ from: -3, to: 2 });
+  assert.equal(calls, 2);
+  assert.equal(harness.rendered.range.from, -0.5);
+  assert.equal(harness.rendered.range.to, 1.5);
+});
+
+test('a failed older history request keeps current candles and retries on the next interaction', async () => {
+  const row = (time) => ({ time, open: 1, high: 2, low: 1, close: 2, volume: 1 });
+  let calls = 0;
+  const harness = await homepageMarketHarness(async () => {
+    calls++;
+    if (calls === 2) throw new Error('offline');
+    return { ok: true, json: async () => ({ ok: true, data: calls === 1 ? [row(3), row(4)] : [row(1), row(2), row(3), row(4)] }) };
+  });
+  harness.changeRange({ from: -1, to: 2 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 2);
+  assert.match(harness.elements.marketDataStatus.textContent, /无法加载/);
+  assert.equal(harness.elements.marketHistoryLoading.hidden, true);
+  assert.equal(harness.rendered.candles.length, 2);
+  harness.changeRange({ from: -1, to: 2 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 3);
+  assert.equal(harness.rendered.candles.length, 4);
+});
 
 test('homepage market failures show an unavailable state without fabricated candles', async () => {
   for (const response of [
