@@ -878,7 +878,13 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
+      gap: 0.75rem;
       margin-bottom: 1rem;
+    }
+
+    .history-card-info {
+      flex: 1;
+      min-width: 0;
     }
 
     .history-card-title {
@@ -887,11 +893,19 @@
       font-weight: 600;
       transition: color 0.3s ease;
       color: var(--black);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .history-card:hover .history-card-title { color: var(--gold); }
 
     .history-card-code {
+      width: fit-content;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       font-size: 0.8125rem;
       color: var(--gold);
       font-weight: 600;
@@ -901,6 +915,8 @@
     }
 
     .history-card-date {
+      flex-shrink: 0;
+      white-space: nowrap;
       font-size: 0.8125rem;
       color: var(--gray-500);
       font-weight: 500;
@@ -2750,8 +2766,8 @@
 
           card.innerHTML = `
             <div class="history-card-header">
-              <div>
-                <div class="history-card-title">${escapeReportHtml(item.company_name || '未知')}</div>
+              <div class="history-card-info">
+                <div class="history-card-title" title="${escapeReportHtml(item.company_name || '未知')}">${escapeReportHtml(item.company_name || '未知')}</div>
                 <div class="history-card-code">${escapeReportHtml(item.stock_code || '-')}</div>
               </div>
               <div class="history-card-date">${statusLabel}</div>
