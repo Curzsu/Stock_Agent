@@ -251,6 +251,7 @@
     const stockTitle = root.querySelector('#analyzingStock');
     const completedCount = root.querySelector('#completedCount');
     const marketChartElement = root.querySelector('#workbenchMarketChart');
+    const marketPeriods = root.querySelector('.market-periods');
     const marketMetrics = root.querySelector('#marketMetrics');
     const marketTradeDate = root.querySelector('#marketTradeDate');
     const marketQuote = root.querySelector('#marketQuote');
@@ -261,6 +262,100 @@
     let chartSeries = null;
     let partialResults = {};
     let chartResizeObserver = null;
+    let candleCount = 0;
+    let chartFocused = false;
+    let chartWheelEnabled = false;
+    let wheelGestureInChart = false;
+    let lastWheelTime = null;
+
+    function setChartWheelEnabled(enabled) {
+      if (!chart || enabled === chartWheelEnabled) return;
+      chartWheelEnabled = enabled;
+      chart.applyOptions({
+        handleScroll: { mouseWheel: enabled },
+        handleScale: { mouseWheel: enabled },
+      });
+    }
+
+    // Bound the viewport to the available stock history; never pan into future whitespace.
+    function constrainMarketRange(range) {
+      if (!chart || !range || !candleCount) return;
+      const span = Math.min(range.to - range.from, candleCount);
+      const to = Math.min(candleCount - 0.5, Math.max(span - 0.5, range.to));
+      const from = to - span;
+      if (Math.abs(from - range.from) > 0.001 || Math.abs(to - range.to) > 0.001) {
+        chart.timeScale().setVisibleLogicalRange({ from, to });
+      }
+    }
+
+    function removeMarketChart() {
+      if (chart) {
+        chart.timeScale().unsubscribeVisibleLogicalRangeChange(constrainMarketRange);
+        chart.remove();
+      }
+      chart = null;
+      chartSeries = null;
+      candleCount = 0;
+      chartWheelEnabled = false;
+    }
+
+    function listen(target, type, handler, eventOptions) {
+      if (!target) return;
+      target.addEventListener(type, handler, eventOptions);
+      cleanup.push(() => target.removeEventListener(type, handler, eventOptions));
+    }
+
+    if (marketChartElement) {
+      const inChart = (target) => marketChartElement.contains(target)
+        || (marketPeriods && marketPeriods.contains(target));
+      const focusChart = () => {
+        if (!chart) return;
+        chartFocused = true;
+        wheelGestureInChart = true;
+        lastWheelTime = null;
+        setChartWheelEnabled(true);
+      };
+      listen(marketChartElement, 'pointerdown', focusChart);
+      listen(marketPeriods, 'pointerdown', focusChart);
+      listen(root.ownerDocument, 'pointerdown', (event) => {
+        if (inChart(event.target)) return;
+        chartFocused = false;
+        setChartWheelEnabled(false);
+      });
+      // A continuous page scroll stays a page scroll even when it crosses the chart.
+      listen(root.ownerDocument, 'wheel', (event) => {
+        const now = event.timeStamp;
+        if (lastWheelTime === null || now < lastWheelTime || now - lastWheelTime > 200) {
+          wheelGestureInChart = inChart(event.target);
+        }
+        lastWheelTime = now;
+        setChartWheelEnabled(chartFocused && wheelGestureInChart);
+      }, { capture: true, passive: true });
+      const zoomFromRight = (event) => {
+        if (!chart || !chartFocused || !wheelGestureInChart || event.deltaY === 0
+          || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+        const range = chart.timeScale().getVisibleLogicalRange();
+        if (!range) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const delta = event.deltaMode === 1 ? event.deltaY * 16
+          : event.deltaMode === 2 ? event.deltaY * marketChartElement.clientHeight : event.deltaY;
+        const factor = Math.exp(Math.max(-400, Math.min(delta, 400)) * 0.001);
+        chart.timeScale().setVisibleLogicalRange({
+          from: Math.max(-0.5, range.to - (range.to - range.from) * factor), to: range.to,
+        });
+      };
+      // Match the homepage: zoom out from the right edge; native zoom in follows the cursor.
+      listen(marketChartElement, 'wheel', (event) => {
+        if (event.deltaY > 0) zoomFromRight(event);
+      }, { capture: true, passive: false });
+      listen(marketPeriods, 'wheel', zoomFromRight, { passive: false });
+      listen(marketChartElement, 'wheel', (event) => {
+        if (!chart || !chartFocused || !wheelGestureInChart) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }, { passive: false });
+    }
 
     const ResizeObserverCtor = root.ownerDocument.defaultView
       && root.ownerDocument.defaultView.ResizeObserver;
@@ -364,6 +459,8 @@
     function renderMarket(payload = {}) {
       if (!marketChartElement) return;
       if (payload.loading) {
+        removeMarketChart();
+        chartFocused = false;
         marketChartElement.replaceChildren();
         const loading = root.ownerDocument.createElement('div');
         loading.className = 'market-loading';
@@ -376,9 +473,8 @@
         return;
       }
       if (!payload.ok) {
-        if (chart && typeof chart.remove === 'function') chart.remove();
-        chart = null;
-        chartSeries = null;
+        removeMarketChart();
+        chartFocused = false;
         marketChartElement.replaceChildren();
         const unavailable = root.ownerDocument.createElement('div');
         unavailable.className = 'market-loading market-unavailable';
@@ -394,7 +490,7 @@
       const chartLibrary = options.LightweightCharts
         || (root.ownerDocument.defaultView && root.ownerDocument.defaultView.LightweightCharts);
       if (chartLibrary && typeof chartLibrary.createChart === 'function') {
-        if (chart && typeof chart.remove === 'function') chart.remove();
+        removeMarketChart();
         marketChartElement.replaceChildren();
         const chartSize = resolveChartSize(
           marketChartElement.clientWidth,
@@ -405,7 +501,9 @@
           layout: { background: { color: 'transparent' }, textColor: '#74695b', fontFamily: '"DM Sans", "FINEX Round", sans-serif' },
           grid: { vertLines: { color: 'rgba(83,64,41,.06)' }, horzLines: { color: 'rgba(83,64,41,.06)' } },
           rightPriceScale: { borderColor: 'rgba(83,64,41,.16)' },
-          timeScale: { borderColor: 'rgba(83,64,41,.16)' },
+          timeScale: { borderColor: 'rgba(83,64,41,.16)', rightOffset: 0 },
+          handleScroll: { mouseWheel: false },
+          handleScale: { mouseWheel: false },
         });
         const candles = chart.addCandlestickSeries({
           upColor: '#496f5c', downColor: '#9b4d43', borderVisible: false,
@@ -419,7 +517,10 @@
         volume.setData(series.volume);
         ma5.setData(series.ma5);
         ma20.setData(series.ma20);
+        candleCount = series.candles.length;
+        chart.timeScale().subscribeVisibleLogicalRangeChange(constrainMarketRange);
         chart.timeScale().fitContent();
+        setChartWheelEnabled(chartFocused);
         chartSeries = { candles, volume, ma5, ma20 };
       }
 
@@ -502,10 +603,8 @@
 
     function destroy() {
       cleanup.splice(0).forEach((dispose) => dispose());
-      if (chart && typeof chart.remove === 'function') chart.remove();
+      removeMarketChart();
       if (chartResizeObserver) chartResizeObserver.disconnect();
-      chart = null;
-      chartSeries = null;
     }
 
     return {
