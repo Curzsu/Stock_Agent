@@ -11,7 +11,7 @@ import re
 from src.utils.state_definition import AgentState
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
 from src.utils.execution_logger import get_execution_logger
-from src.utils.pdf_converter import generate_pdf_background
+from src.utils.pdf_converter import start_pdf_generation
 from src.utils.agent_config import REACT_TIMEOUT_SECONDS
 from src.utils.agent_output import require_analysis_text
 from src.utils.summary_generation import generate_summary, summary_max_tokens
@@ -539,14 +539,12 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         # Clean stock code for PDF cover page
         clean_code_for_pdf = stock_code.replace("sh.", "").replace("sz.", "") if stock_code else ""
         try:
-            asyncio.create_task(
-                generate_pdf_background(
-                    md_path=report_path,
-                    state_data=current_data,
-                    company_name=company_name if company_name != "Unknown Company" else "",
-                    stock_code=clean_code_for_pdf,
-                    analysis_date=current_data.get("current_date", "")
-                )
+            start_pdf_generation(
+                md_path=report_path,
+                state_data=current_data,
+                company_name=company_name if company_name != "Unknown Company" else "",
+                stock_code=clean_code_for_pdf,
+                analysis_date=current_data.get("current_date", "")
             )
             logger.info(f"{WAIT_ICON} SummaryAgent: PDF generation started in background for {report_path}")
         except Exception as pdf_task_error:

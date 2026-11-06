@@ -57,7 +57,7 @@ from src.utils.state_definition import AgentState
 from src.utils.baostock_helper import BaostockBlacklistedError, BaostockDataError, safe_query
 
 # Import shared PDF path derivation (P2-6: 消除三处重复的路径推断逻辑)
-from src.utils.pdf_converter import derive_pdf_path, get_pdf_status
+from src.utils.pdf_converter import derive_pdf_path, get_pdf_status, is_pdf_generation_running
 
 # Import shared stock info extractor (P2-3: 合并 main.py 与 server.py 两套 extract_stock_info)
 from src.utils.stock_extractor import extract_stock_info, COMPANY_CODE_MAP
@@ -379,6 +379,15 @@ class ApiConfigRequest(BaseModel):
 
 def require_local_config_access(request: Request) -> None:
     """Configuration belongs to the local operator, including browser requests."""
+    require_local_page_access(request, "API 配置仅允许通过本机页面访问")
+
+
+def require_local_history_access(request: Request) -> None:
+    """Only the local operator may permanently delete generated reports."""
+    require_local_page_access(request, "删除研报仅允许通过本机页面操作")
+
+
+def require_local_page_access(request: Request, message: str) -> None:
     try:
         local_client = request.client is not None and ip_address(request.client.host).is_loopback
     except ValueError:
@@ -389,7 +398,7 @@ def require_local_config_access(request: Request) -> None:
         or request.url.hostname not in {"localhost", "127.0.0.1", "::1"}
         or (origin is not None and origin != str(request.base_url).rstrip("/"))
     ):
-        raise HTTPException(status_code=403, detail="API 配置仅允许通过本机页面访问")
+        raise HTTPException(status_code=403, detail=message)
 
 
 def validate_config_destination(config: ApiConfigRequest) -> None:
@@ -851,8 +860,8 @@ async def get_analysis_history():
 
     return {"history": history}
 
-@app.delete("/api/history/{analysis_id}")
-@app.delete("/api/analysis/{analysis_id}")
+@app.delete("/api/history/{analysis_id}", dependencies=[Depends(require_local_history_access)])
+@app.delete("/api/analysis/{analysis_id}", dependencies=[Depends(require_local_history_access)])
 async def delete_analysis_history(analysis_id: str):
     """Delete a historical analysis session and its generated report files."""
     if analysis_id not in analysis_sessions:
@@ -866,26 +875,23 @@ async def delete_analysis_history(analysis_id: str):
     report_path = (session.result and session.result.get("report_path")) or ""
     pdf_path = (session.result and session.result.get("pdf_path")) or (derive_pdf_path(report_path) if report_path else "")
 
-    if report_path:
-        try:
-            if os.path.isfile(report_path):
-                os.remove(report_path)
-        except OSError as e:
-            print(f"Warning: Failed to remove markdown report {report_path}: {e}")
+    if report_path and is_pdf_generation_running(report_path):
+        raise HTTPException(status_code=409, detail="PDF 正在生成中，请完成后再删除研报")
 
+    # Preserve the session until every file has been removed. A retry may safely
+    # skip files already removed by a partially successful previous attempt.
+    paths = []
     if pdf_path:
-        try:
-            if os.path.isfile(pdf_path):
-                os.remove(pdf_path)
-            pdf_path_obj = Path(pdf_path)
-            status_file = pdf_path_obj.with_suffix(".pdf.status.json")
-            if status_file.is_file():
-                status_file.unlink(missing_ok=True)
-            log_file = pdf_path_obj.with_suffix(".pdf.log")
-            if log_file.is_file():
-                log_file.unlink(missing_ok=True)
-        except OSError as e:
-            print(f"Warning: Failed to remove PDF report files: {e}")
+        pdf_path_obj = Path(pdf_path)
+        paths.extend((pdf_path_obj, pdf_path_obj.with_suffix(".pdf.status.json"),
+                      pdf_path_obj.with_suffix(".pdf.log")))
+    if report_path:
+        paths.append(Path(report_path))
+    try:
+        for path in paths:
+            path.unlink(missing_ok=True)
+    except OSError:
+        raise HTTPException(status_code=500, detail="研报文件清理失败，历史记录已保留，请稍后重试")
 
     del analysis_sessions[analysis_id]
     return {
