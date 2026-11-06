@@ -1778,6 +1778,32 @@
     }
     .market-tag.up { color: #b03a2e; }
     .market-tag.down { color: #1e8e5a; }
+    .market-chart-controls {
+      display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+      gap: 0.75rem 1.5rem; margin: 0 0 1rem;
+    }
+    .market-ma-controls, .market-period-controls {
+      display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+      gap: 0.5rem; color: var(--gray-600); font-size: 0.875rem;
+    }
+    .market-ma-toggle {
+      display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.7rem;
+      border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 999px;
+      background: rgba(255, 255, 255, 0.65); color: var(--gray-700); cursor: pointer;
+      font: inherit; transition: opacity 0.2s ease, background 0.2s ease;
+    }
+    .market-ma-toggle::before {
+      content: ''; width: 1rem; height: 3px; border-radius: 2px; background: var(--ma-color);
+    }
+    .market-ma-toggle[aria-pressed="false"] { opacity: 0.5; background: transparent; }
+    .market-ma-toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+    .market-period-toggle {
+      border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 999px;
+      padding: 0.4rem 0.75rem; color: var(--gray-700); background: transparent;
+      cursor: pointer; font: inherit;
+    }
+    .market-period-toggle[aria-pressed="true"] { color: #fff; background: #806227; border-color: #806227; }
+    .market-period-toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
     .market-card {
       background: rgba(255,255,255,0.7); backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
@@ -1791,9 +1817,36 @@
       letter-spacing: 0.01em;
     }
     .market-chart { width: 100%; height: 400px; }
+    .market-year-labels {
+      position: absolute; left: 0.25rem; right: 0.25rem; bottom: 0.25rem;
+      pointer-events: none; overflow: hidden; z-index: 1;
+    }
+    .market-year-label {
+      position: absolute; top: 50%; transform: translate(-50%, -50%);
+      color: #876214; font: 700 15px/1 var(--font-body); white-space: nowrap;
+    }
+    .market-history-loading {
+      position: absolute; top: 2rem; left: 1.25rem; z-index: 2;
+      padding: 0.5rem 0.8rem; border-radius: 999px;
+      background: rgba(255, 255, 255, 0.94); color: var(--gray-700);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+      font-size: 0.875rem; pointer-events: none;
+    }
+    .market-history-loading[hidden] { display: none; }
+    .market-selection {
+      position: absolute; top: 2rem; right: 6rem; z-index: 2;
+      max-width: calc(100% - 7rem); padding: 0.5rem 0.8rem; text-align: center;
+      border-radius: 12px; background: rgba(255, 255, 255, 0.94);
+      color: var(--gray-700); box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+      font-size: 0.875rem; pointer-events: none;
+    }
+    .market-selection.up { color: #b03a2e; }
+    .market-selection.down { color: #1e8e5a; }
+    .market-selection[hidden] { display: none; }
     @media (max-width: 768px) {
       .market-header { flex-direction: column; align-items: flex-start; }
       .market-chart { height: 300px; }
+      .market-selection { top: 4.75rem; }
     }
 
     /* --- How it works 步骤区 --- */
@@ -2000,18 +2053,34 @@
     <div class="market-container">
       <div class="market-header reveal">
         <div>
-          <h2 class="market-title">指数日线行情</h2>
-          <p class="market-sub">上证指数历史走势 · 最近交易日收盘</p>
+          <h2 class="market-title">上证指数行情</h2>
         </div>
         <div class="market-tags">
           <span class="market-tag" id="marketIndexChange">沪指 —</span>
           <span class="market-tag" id="marketTradeDateLabel">等待行情数据</span>
         </div>
       </div>
+      <div class="market-chart-controls" id="marketMAControls">
+      <div class="market-period-controls" role="group" aria-label="K线周期">
+        <button type="button" class="market-period-toggle" data-market-period data-period="day" aria-pressed="true">日线</button>
+        <button type="button" class="market-period-toggle" data-market-period data-period="week" aria-pressed="false">周线</button>
+        <button type="button" class="market-period-toggle" data-market-period data-period="month" aria-pressed="false">月线</button>
+      </div>
+      <div class="market-ma-controls" role="group" aria-label="均线显示设置">
+        <span>均线</span>
+        <button type="button" class="market-ma-toggle" data-market-ma data-period="5" aria-pressed="true" style="--ma-color:#b07c16">MA5</button>
+        <button type="button" class="market-ma-toggle" data-market-ma data-period="10" aria-pressed="true" style="--ma-color:#5979a8">MA10</button>
+        <button type="button" class="market-ma-toggle" data-market-ma data-period="20" aria-pressed="true" style="--ma-color:#9964a5">MA20</button>
+      </div>
+      </div>
       <div class="market-card reveal">
         <div class="market-chart" id="marketChart"></div>
+        <div class="market-year-labels" id="marketYearLabels" aria-hidden="true"></div>
+        <div class="market-history-loading" id="marketHistoryLoading" role="status" aria-live="polite" hidden>正在加载更早行情…</div>
+        <div class="market-selection" id="marketSelection" role="status" aria-live="polite" hidden></div>
       </div>
       <p class="market-hint" id="marketDataStatus" role="status">正在加载最近交易日行情…</p>
+      <p class="market-hint">交易日日线通常在 17:30 左右入库，具体以数据源更新时间为准。</p>
       <p class="market-hint">点击图表，滚动鼠标滚轮可放大缩小 K 线</p>
     </div>
   </section>
@@ -2502,6 +2571,10 @@
       const changeLabel = document.getElementById('marketIndexChange');
       const dateLabel = document.getElementById('marketTradeDateLabel');
       const dataStatus = document.getElementById('marketDataStatus');
+      const historyLoading = document.getElementById('marketHistoryLoading');
+      const selection = document.getElementById('marketSelection');
+      const yearLabels = document.getElementById('marketYearLabels');
+      const maControls = document.getElementById('marketMAControls');
       if (!container || typeof LightweightCharts === 'undefined') {
         if (section) section.style.display = 'none';
         return;
@@ -2526,7 +2599,19 @@
           horzLine: { color: 'rgba(201,162,39,0.5)', labelBackgroundColor: '#c9a227' },
         },
         rightPriceScale: { borderColor: 'transparent' },
-        timeScale: { borderColor: 'transparent', timeVisible: true, rightOffset: 0 },
+        timeScale: {
+          borderColor: 'transparent', timeVisible: true, rightOffset: 0,
+          tickMarkFormatter(time, type) {
+            if (type === 0) return '';
+            if (type !== 1) return null;
+            const parts = typeof time === 'number'
+              ? new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric' })
+                .formatToParts(new Date(time * 1000))
+              : [{ type: 'year', value: time.year }, { type: 'month', value: time.month }];
+            const value = parts.find(part => part.type === 'month').value;
+            return `${value}月`;
+          },
+        },
         autoSize: false,
         // 滚轮缩放默认关闭：未点击图表前滚轮只滚页面、不缩放；点击聚焦后才开启缩放
         handleScroll: { mouseWheel: false },
@@ -2544,11 +2629,253 @@
         priceScaleId: 'vol',
       });
       chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+      const movingAverages = [
+        { period: 5, color: '#b07c16' },
+        { period: 10, color: '#5979a8' },
+        { period: 20, color: '#9964a5' },
+      ].map(({ period, color }) => ({
+        period,
+        series: chart.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }),
+      }));
+
+      document.querySelectorAll('[data-market-ma]').forEach(button => {
+        const line = movingAverages.find(item => item.period === Number(button.dataset.period));
+        if (!line) return;
+        button.addEventListener('click', () => {
+          const visible = button.getAttribute('aria-pressed') !== 'true';
+          button.setAttribute('aria-pressed', String(visible));
+          line.series.applyOptions({ visible });
+          chartFocused = true;
+          setChartWheelEnabled(true);
+        });
+      });
+
+      let dailyRows = [];
+      let marketRows = [];
+      let marketPeriod = 'day';
+      let yearBoundaries = [];
+      let historyDays = 90;
+      let loadingHistory = false;
+      let historyExhausted = false;
+      let updatingHistory = false;
+      const maxHistoryDays = 10000;
+
+      function aggregateMarketRows(rows, period) {
+        if (period === 'day') return rows;
+        const groups = [];
+        for (const row of rows) {
+          const date = new Date((row.time + 8 * 3600) * 1000);
+          const midnight = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+          const key = period === 'month'
+            ? `${date.getUTCFullYear()}-${date.getUTCMonth()}`
+            : String(midnight - ((date.getUTCDay() + 6) % 7) * 86400000);
+          let group = groups[groups.length - 1];
+          if (!group || group.key !== key) {
+            group = { ...row, key, endTime: row.time };
+            groups.push(group);
+          } else {
+            group.high = Math.max(group.high, row.high);
+            group.low = Math.min(group.low, row.low);
+            group.close = row.close;
+            group.volume += row.volume;
+            group.endTime = row.time;
+          }
+        }
+        // 未知最早日线前的行情时，避免将不完整的起始周/月当作完整 K 线。
+        return !historyExhausted && groups.length > 1 ? groups.slice(1) : groups;
+      }
+
+      function setMarketSeries() {
+        candleSeries.setData(marketRows.map(d => ({ time: d.time, open: d.open, high: d.high, low: d.low, close: d.close })));
+        renderMarketVolumes();
+        renderMovingAverages();
+        updateYearBoundaries();
+      }
+
+      const periodButtons = Array.from(document.querySelectorAll('[data-market-period]'));
+      periodButtons.forEach(button => button.addEventListener('click', () => {
+        const nextPeriod = button.dataset.period;
+        if (!['day', 'week', 'month'].includes(nextPeriod) || !dailyRows.length) return;
+        chartFocused = true;
+        setChartWheelEnabled(true);
+        if (nextPeriod === marketPeriod) return;
+        marketPeriod = nextPeriod;
+        periodButtons.forEach(item => item.setAttribute('aria-pressed', String(item.dataset.period === marketPeriod)));
+        selection.hidden = true;
+        updatingHistory = true;
+        marketRows = aggregateMarketRows(dailyRows, marketPeriod);
+        setMarketSeries();
+        chart.timeScale().fitContent();
+        updatingHistory = false;
+        renderMarketYears();
+        if (marketPeriod !== 'day' && marketRows.length < 22 && dailyRows.length) loadOlderHistory({ from: 0 });
+      }));
+
+      function renderMarketVolumes() {
+        volSeries.setData(marketRows.map((row, index) => {
+          const previous = marketRows[index - 1];
+          const color = !previous || previous.close <= 0 || row.close === previous.close
+            ? 'rgba(120, 120, 120, 0.35)'
+            : row.close > previous.close ? 'rgba(176, 58, 46, 0.38)' : 'rgba(30, 142, 90, 0.38)';
+          return { time: row.time, value: row.volume, color };
+        }));
+      }
+
+      function renderMovingAverages() {
+        for (const { period, series } of movingAverages) {
+          let sum = 0;
+          const values = [];
+          marketRows.forEach((row, index) => {
+            sum += row.close;
+            if (index >= period) sum -= marketRows[index - period].close;
+            if (index >= period - 1) values.push({ time: row.time, value: sum / period });
+          });
+          series.setData(values);
+        }
+      }
+
+      function updateYearBoundaries() {
+        yearBoundaries = [];
+        let previousYear = null;
+        for (const row of marketRows) {
+          const date = new Date((row.time + 8 * 3600) * 1000);
+          const year = date.getUTCFullYear();
+          if (year !== previousYear && (previousYear !== null || date.getUTCMonth() === 0)) {
+            yearBoundaries.push({ time: row.time, year });
+          }
+          previousYear = year;
+        }
+      }
+
+      function renderMarketYears() {
+        const scale = chart.timeScale();
+        const labels = [];
+        yearLabels.style.height = `${scale.height()}px`;
+        const plotWidth = container.clientWidth - (chart.priceScale('right').width?.() || 0);
+        for (const boundary of yearBoundaries) {
+          const x = scale.timeToCoordinate(boundary.time);
+          if (x == null || x < 32 || x > plotWidth - 32) continue;
+          const label = document.createElement('span');
+          label.className = 'market-year-label';
+          label.style.left = `${x}px`;
+          label.textContent = `${boundary.year}年`;
+          labels.push(label);
+        }
+        yearLabels.replaceChildren(...labels);
+      }
+
+      function positionMarketSelection() {
+        const scale = chart.priceScale('right');
+        const inset = (typeof scale.width === 'function' ? scale.width() : 80) + 12;
+        selection.style.right = `${inset}px`;
+        selection.style.maxWidth = `calc(100% - ${inset + 12}px)`;
+      }
+
+      chart.subscribeClick((event) => {
+        const index = marketRows.findIndex(row => row.time === event.time);
+        if (index < 0) return;
+        const row = marketRows[index];
+        const previous = marketRows[index - 1];
+        const change = previous && previous.close > 0 ? (row.close / previous.close - 1) * 100 : null;
+        const date = new Intl.DateTimeFormat('sv-SE', {
+          timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(new Date(row.time * 1000));
+        const endDate = row.endTime && row.endTime !== row.time
+          ? new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(row.endTime * 1000)) : null;
+        const periodLabel = marketPeriod === 'week' ? '周涨跌幅' : marketPeriod === 'month' ? '月涨跌幅' : '涨跌幅';
+        const dateLabel = endDate ? `${date} 至 ${endDate}` : date;
+        selection.textContent = change == null ? `${dateLabel} ${periodLabel}暂缺`
+          : `${dateLabel} ${periodLabel} ${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+        selection.className = `market-selection${change == null || change === 0 ? '' : change > 0 ? ' up' : ' down'}`;
+        positionMarketSelection();
+        selection.hidden = false;
+      });
+
+      function constrainMarketRange(range) {
+        if (!range || !marketRows.length || updatingHistory) return range;
+        let { from, to } = range;
+        const right = marketRows.length - 0.5;
+        if (to > right) {
+          from -= to - right;
+          to = right;
+        }
+        if (historyExhausted && from < -0.5) {
+          to = Math.min(right, to + (-0.5 - from));
+          from = -0.5;
+        }
+        if (Math.abs(from - range.from) > 0.001 || Math.abs(to - range.to) > 0.001) {
+          chart.timeScale().setVisibleLogicalRange({ from, to });
+        }
+        return { from, to };
+      }
+
+      function onMarketRangeChange(range) {
+        if (updatingHistory) return;
+        loadOlderHistory(constrainMarketRange(range));
+        renderMarketYears();
+      }
+
+      async function fetchMarketRows(days) {
+        const res = await fetch(`${API_BASE}/market-kline?days=${days}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json.ok || !Array.isArray(json.data) || json.data.length === 0) {
+          throw new Error(json.error || '无数据');
+        }
+        if (!json.data.every((row) => ['time', 'open', 'high', 'low', 'close', 'volume']
+          .every((key) => Number.isFinite(row[key])))) {
+          throw new Error('行情数据格式无效');
+        }
+        return json.data;
+      }
+
+      async function loadOlderHistory(range) {
+        if (!range || range.from > 10 || loadingHistory || historyExhausted || !dailyRows.length) return;
+        loadingHistory = true;
+        historyLoading.hidden = false;
+        try {
+          const nextDays = Math.min(historyDays * 2, maxHistoryDays);
+          const rows = await fetchMarketRows(nextDays);
+          const older = rows.filter(row => row.time < dailyRows[0].time);
+          historyDays = nextDays;
+          if (!older.length || historyDays === maxHistoryDays) historyExhausted = true;
+          const visible = chart.timeScale().getVisibleLogicalRange();
+          const previousLength = marketRows.length;
+          if (older.length) dailyRows = older.concat(dailyRows);
+          marketRows = aggregateMarketRows(dailyRows, marketPeriod);
+          updatingHistory = true;
+          setMarketSeries();
+          const added = marketRows.length - previousLength;
+          if (visible) chart.timeScale().setVisibleLogicalRange({ from: visible.from + added, to: visible.to + added });
+          updatingHistory = false;
+          if (!older.length) {
+            constrainMarketRange(chart.timeScale().getVisibleLogicalRange());
+            renderMarketYears();
+            dataStatus.textContent = '数据来源：BaoStock · 最近交易日收盘数据，非实时行情';
+            return;
+          }
+          constrainMarketRange(chart.timeScale().getVisibleLogicalRange());
+          renderMarketYears();
+          dataStatus.textContent = '数据来源：BaoStock · 最近交易日收盘数据，非实时行情';
+        } catch (e) {
+          console.warn('加载更早行情失败:', e);
+          dataStatus.textContent = '更早行情暂时无法加载，请稍后再次缩放重试。';
+          return;
+        } finally {
+          updatingHistory = false;
+          loadingHistory = false;
+          historyLoading.hidden = true;
+        }
+        const current = chart.timeScale().getVisibleLogicalRange();
+        if (!historyExhausted && marketPeriod !== 'day' && marketRows.length < 22) loadOlderHistory({ from: 0 });
+        else if (current && current.from < -0.5 && !historyExhausted) loadOlderHistory(current);
+      }
 
       // 把 (candles, volumes) 数据渲染到图表
-      function renderData(candles, volumes) {
+      function renderData(candles) {
         candleSeries.setData(candles);
-        volSeries.setData(volumes.map(v => ({ ...v, color: 'rgba(201,162,39,0.35)' })));
+        renderMarketVolumes();
+        renderMovingAverages();
         chart.timeScale().fitContent();
         if (!reduceMotion) {
           candleSeries.applyOptions({ baseLineColor: 'rgba(201,162,39,0.3)' });
@@ -2558,23 +2885,18 @@
       // 仅展示真实日终行情；失败时明确提示，不生成替代价格。
       async function load() {
         try {
-          const res = await fetch(`${API_BASE}/market-kline?days=90`);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const json = await res.json();
-          if (!json.ok || !Array.isArray(json.data) || json.data.length === 0) {
-            throw new Error(json.error || '无数据');
-          }
-          if (!json.data.every((row) => ['time', 'open', 'high', 'low', 'close', 'volume']
-            .every((key) => Number.isFinite(row[key])))) {
-            throw new Error('行情数据格式无效');
-          }
-          const candles = json.data.map(d => ({
+          dailyRows = await fetchMarketRows(historyDays);
+          marketRows = aggregateMarketRows(dailyRows, marketPeriod);
+          updateYearBoundaries();
+          const candles = marketRows.map(d => ({
             time: d.time, open: d.open, high: d.high, low: d.low, close: d.close,
           }));
-          const volumes = json.data.map(d => ({ time: d.time, value: d.volume }));
-          renderData(candles, volumes);
-          const latest = candles[candles.length - 1];
-          const previous = candles[candles.length - 2];
+          renderData(candles);
+          chart.timeScale().subscribeVisibleLogicalRangeChange(onMarketRangeChange);
+          if (window.requestAnimationFrame) window.requestAnimationFrame(renderMarketYears);
+          else renderMarketYears();
+          const latest = dailyRows[dailyRows.length - 1];
+          const previous = dailyRows[dailyRows.length - 2];
           const change = previous && previous.close > 0
             ? (latest.close / previous.close - 1) * 100 : null;
           changeLabel.textContent = change == null ? '沪指 涨跌幅暂缺'
@@ -2600,21 +2922,26 @@
       // 响应容器尺寸变化
       const ro = new ResizeObserver(() => {
         chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+        if (!selection.hidden) positionMarketSelection();
+        if (window.requestAnimationFrame) window.requestAnimationFrame(renderMarketYears);
+        else renderMarketYears();
       });
       ro.observe(container);
       // 区块随 landing 隐藏时也重建一次尺寸
       chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
 
-      // 滚轮交互：图表滚轮缩放默认关闭。鼠标悬停时滚轮仅滚动页面、图表不缩放；
-      // 点击图表聚焦后才开启滚轮缩放，且聚焦时阻止页面滚动。
+      // 滚轮交互：点击图表或均线开关后启用缩放，点击其他位置后恢复页面滚动。
       //   实现：通过切换 handleScroll/handleScale 的 mouseWheel 开关来控制图表
       //   是否响应滚轮（lightweight-charts 在关闭时不会 preventDefault，滚轮事件
       //   可正常透传到 Lenis 实现页面滚动）。聚焦时用冒泡阶段拦截并阻止上抛到
       //   Lenis 的 window 级监听，避免缩放时页面跟着滚动。
-      // 注：playwright 的 mouse.wheel 无法触发 lightweight-charts 缩放，
-      //     需在真实浏览器中验证缩放效果。
       let chartFocused = false;
+      let wheelGestureInChart = true;
+      let lastWheelTime = null;
+      let chartWheelEnabled = false;
       function setChartWheelEnabled(enabled) {
+        if (enabled === chartWheelEnabled) return;
+        chartWheelEnabled = enabled;
         chart.applyOptions({
           handleScroll: { mouseWheel: enabled },
           handleScale: { mouseWheel: enabled },
@@ -2622,16 +2949,47 @@
       }
       container.addEventListener('pointerdown', () => {
         chartFocused = true;
+        lastWheelTime = null;
         setChartWheelEnabled(true);
       });
       document.addEventListener('pointerdown', (e) => {
-        if (!container.contains(e.target) && chartFocused) {
+        if (!container.contains(e.target) && !maControls.contains(e.target) && chartFocused) {
           chartFocused = false;
           setChartWheelEnabled(false);
         }
       });
+      // 一次连续滚动以首个 wheel 事件所在区域为准，避免页面滚动进入图表时突然缩放。
+      document.addEventListener('wheel', (e) => {
+        const now = e.timeStamp;
+        if (lastWheelTime === null || now < lastWheelTime || now - lastWheelTime > 200) {
+          wheelGestureInChart = container.contains(e.target) || maControls.contains(e.target);
+        }
+        lastWheelTime = now;
+        setChartWheelEnabled(chartFocused && wheelGestureInChart);
+      }, { capture: true, passive: true });
+      maControls.addEventListener('wheel', (e) => {
+        if (!chartFocused || !wheelGestureInChart || e.deltaY === 0 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+        const range = chart.timeScale().getVisibleLogicalRange();
+        if (!range) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * container.clientHeight : e.deltaY;
+        const factor = Math.exp(Math.max(-400, Math.min(delta, 400)) * 0.001);
+        chart.timeScale().setVisibleLogicalRange({ from: range.to - (range.to - range.from) * factor, to: range.to });
+      }, { passive: false });
+      // 缩小时固定右边界，只向左扩展历史范围；放大仍由图表处理。
       container.addEventListener('wheel', (e) => {
-        if (chartFocused) {
+        if (!chartFocused || !wheelGestureInChart || e.deltaY <= 0 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+        const range = chart.timeScale().getVisibleLogicalRange();
+        if (!range) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * container.clientHeight : e.deltaY;
+        const factor = Math.exp(Math.min(delta, 400) * 0.001);
+        chart.timeScale().setVisibleLogicalRange({ from: range.to - (range.to - range.from) * factor, to: range.to });
+      }, { capture: true, passive: false });
+      container.addEventListener('wheel', (e) => {
+        if (chartFocused && wheelGestureInChart) {
           e.stopPropagation();
           e.preventDefault();
         }
