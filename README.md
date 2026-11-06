@@ -95,6 +95,9 @@ BaoStock 返回 `10001011` 后默认暂停连接 6 小时，重启仍生效；�
 [官方黑名单页面](https://www.baostock.com/blacklist) 为准。同机多副本需共用状态目录，请勿删除使用中的 `access.lock`。
 兼容层、重试机制与排障细节见 [开发与排障说明](docs/development.md)。
 
+可选接入 LangSmith，按分析 ID 查看模型 token、截断原因、工具排队/执行耗时和重试链路。
+默认关闭，配置与验收步骤见 [LangSmith 追踪说明](docs/langsmith.md)。
+
 ## PDF 报告
 
 PDF 在后台独立生成，在线阅读和 Markdown 不依赖排版工具。

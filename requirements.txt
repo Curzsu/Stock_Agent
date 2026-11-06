@@ -10,6 +10,8 @@ langchain>=1.2.0
 langchain-core>=1.2.0
 langchain-openai>=1.1.11,<2.0
 langchain-mcp-adapters>=0.1.9
+# Maintained SDK: https://github.com/langchain-ai/langsmith-python
+langsmith==0.14.17
 
 # Data tools
 baostock>=0.9.3
