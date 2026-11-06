@@ -40,6 +40,7 @@ load_dotenv(env_path, override=True)
 
 # LangGraph imports
 from src.utils.workflow_builder import build_workflow
+from src.utils.research_scope import research_scope
 from src.utils.observability import analysis_trace, flush_traces, invoke_agent, invoke_workflow
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -296,13 +297,14 @@ async def retry_agent_and_summary(
     session = analysis_sessions[analysis_id]
     state = AgentState(messages=[], data=session.initial_data,
                        metadata={"analysis_id": analysis_id, "retry": agent_key})
-    with analysis_trace(state, operation="retry") as run:
-        await _retry_agent_and_summary(analysis_id, agent_key, selected_agent, summarizer)
-        if run is not None:
-            errors = [f"{key}: {detail.get('error') or '分析未返回有效结果'}"
-                      for key, detail in session.agent_details.items() if detail["status"] == "failed"]
-            run.end(outputs={"status": session.status},
-                    error=session.error or "; ".join(errors) or None)
+    async with research_scope():
+        with analysis_trace(state, operation="retry") as run:
+            await _retry_agent_and_summary(analysis_id, agent_key, selected_agent, summarizer)
+            if run is not None:
+                errors = [f"{key}: {detail.get('error') or '分析未返回有效结果'}"
+                          for key, detail in session.agent_details.items() if detail["status"] == "failed"]
+                run.end(outputs={"status": session.status},
+                        error=session.error or "; ".join(errors) or None)
 
 
 async def _retry_agent_and_summary(

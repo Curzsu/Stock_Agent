@@ -2,7 +2,7 @@
 import logging
 from datetime import datetime
 
-from mcp.server.fastmcp import FastMCP
+from src.threaded_mcp import ThreadedFastMCP as FastMCP
 
 # Import the interface and the concrete implementation
 from src.data_source_interface import FinancialDataSource

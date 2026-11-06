@@ -87,7 +87,9 @@ def _make_fake_react_agent(content="这是模拟分析结果", *, raise_exc=None
 
 async def _fake_get_mcp_tools():
     """假 MCP 工具列表，避免真实 MCP 子进程。"""
-    return [MagicMock(name="fake_tool")]
+    tool = MagicMock()
+    tool.name = 'get_stock_basic_info'
+    return [tool]
 
 
 def _make_fake_llm(report_content=SUMMARY_REPORT, llm_calls=None, report_message=None):

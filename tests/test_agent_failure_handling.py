@@ -62,7 +62,9 @@ class TestAgentFailureHandling(unittest.TestCase):
 
         # get_mcp_tools 返回假工具列表
         async def fake_get_mcp_tools():
-            return [MagicMock(name="fake_tool")]
+            tool = MagicMock()
+            tool.name = 'get_stock_basic_info'
+            return [tool]
 
         p1 = patch.object(agent_module, "get_mcp_tools", fake_get_mcp_tools)
         patches.append(p1)
@@ -99,16 +101,10 @@ class TestAgentFailureHandling(unittest.TestCase):
         patches = self._patch_mcp_and_react(mod, "timeout")
         try:
             state = _make_state()
-            # 用很短的 wait_for 超时触发 timeout 路径
-            # 注意：agent 内部有 asyncio.wait_for(timeout=480)，我们让它跑但
-            # 直接调 agent 会等 480s。改为 patch wait_for 让它快速超时。
+            # 缩短真正的分析总预算，不能把内部工具超时冒充总超时。
             import src.agents.fundamental_agent as fa
 
-            async def fast_timeout(coro, timeout=None):
-                coro.close()
-                raise asyncio.TimeoutError()
-
-            with patch.object(fa.asyncio, "wait_for", fast_timeout):
+            with patch.object(fa, "REACT_TIMEOUT_SECONDS", .01):
                 result = asyncio.run(mod.fundamental_agent(state))
 
             data = result.get("data", {})
