@@ -1,0 +1,23 @@
+{
+  "applied": true,
+  "commits": [
+    {
+      "branch": "codex/integrate-langsmith",
+      "commit": "e78415f636f019faa39650ffd3bd58ef1e3d4f0c",
+      "parent": "d0ee479095936daf7ddcccaa2bcc433ab5ebd33b",
+      "tree": "9614b8d83685e6436922fbbf383b73086baf7442"
+    },
+    {
+      "branch": "codex/fix-analysis-timeouts",
+      "commit": "2c362b8b564f9d4b853fb30585b6f777393d31b3",
+      "parent": "e78415f636f019faa39650ffd3bd58ef1e3d4f0c",
+      "tree": "1039830eae881f304fa025c4d3e2cd2dc0fc4773"
+    },
+    {
+      "branch": "codex/align-research-kline",
+      "commit": "19d1442d8ce5eb4f4d232a8889b3d67f17b23f5d",
+      "parent": "2c362b8b564f9d4b853fb30585b6f777393d31b3",
+      "tree": "63e47f04ddced42795d8456015f70740686aa7de"
+    }
+  ]
+}

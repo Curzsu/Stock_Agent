@@ -1,0 +1,24 @@
+# Web Server
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+python-multipart>=0.0.6
+pydantic>=2.0.0
+
+# LangChain and LangGraph
+langgraph>=1.1.0
+langchain>=1.2.0
+langchain-core>=1.2.0
+langchain-openai>=1.1.11,<2.0
+langchain-mcp-adapters>=0.1.9
+# Maintained SDK: https://github.com/langchain-ai/langsmith-python
+langsmith==0.14.17
+
+# Data tools
+baostock>=0.9.3
+
+# PDF rendering uses Pandoc 3 + XeLaTeX/Tectonic (system/portable tools).
+# Windows: powershell -ExecutionPolicy Bypass -File scripts/setup_pdf.ps1
+
+# Utilities
+python-dotenv>=1.1.0
+uv>=0.8.0

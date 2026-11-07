@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [v2.0]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHON_DOTENV_DISABLED: "1"
+      USE_LOCAL_MODEL: api
+      LANGSMITH_TRACING: "false"
+      TZ: Asia/Shanghai
+      UV_PYTHON: "3.10"
+      UV_PYTHON_DOWNLOADS: never
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.10"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          version: "0.8.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            requirements*.txt
+            mcp-server/pyproject.toml
+            mcp-server/uv.lock
+
+      - name: Check syntax and frontend
+        run: |
+          python -m compileall -q backend agents/src mcp-server/src mcp-server/mcp_server.py scripts tests mcp-server/tests
+          node --check frontend/workbench.js
+          node --test tests/frontend/test_workbench.cjs
+
+      - name: Install application dependencies
+        run: uv pip install --system --python "$(command -v python)" -r requirements-test.txt
+
+      - name: Test application
+        run: python scripts/run_ci_tests.py app
+
+      - name: Install locked MCP dependencies
+        run: uv sync --locked --directory mcp-server --python "$(command -v python)"
+
+      - name: Test MCP
+        run: uv run --locked --no-sync --directory mcp-server python ../scripts/run_ci_tests.py mcp
+
+      - name: Check MCP runtime
+        env:
+          UV_LOCKED: "1"
+          UV_NO_SYNC: "1"
+        run: python scripts/run_ci_tests.py runtime

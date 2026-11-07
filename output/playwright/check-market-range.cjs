@@ -1,0 +1,127 @@
+const { chromium } = require('C:/Program Files/WindowsApps/OpenAI.CodexPrimaryRuntime.v26-1030-493-0_26.1030.493.0_x64__3k8sg7r9htsxt/dependencies/node/node_modules/playwright');
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+(async () => {
+  const browser = await chromium.launch({headless: true, executablePath: 'C:/Users/Lukesu/AppData/Local/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-win64/chrome-headless-shell.exe'});
+  try {
+    const page = await browser.newPage({viewport: {width: 1440, height: 900}});
+    const errors = [];
+    const marketRequests = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const rows = Array.from({length: 300}, (_, i) => ({time: 1700000000 + i * 86400, open: 3000, high: 3050, low: 2950, close: [3010, 3020, 3000][i % 3], volume: 100}));
+    await page.route('**/*', route => {
+      const url = route.request().url();
+      if (url.includes('lightweight-charts')) return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync('output/playwright/lightweight-charts.js')});
+      if (url.includes('market-kline')) {
+        marketRequests.push(url);
+        if (url.includes('days=90')) return route.fulfill({json: {ok: true, data: rows.slice(-90)}});
+        return new Promise(resolve => setTimeout(resolve, 800)).then(() => route.fulfill({json: {ok: true, data: rows}}));
+      }
+      if (url.includes('/api/')) return route.fulfill({json: {ok: false, history: []}});
+      if (url.endsWith('/static/workbench.css')) return route.fulfill({contentType: 'text/css', body: fs.readFileSync('frontend/workbench.css')});
+      if (url.endsWith('/static/workbench.js')) return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync('frontend/workbench.js')});
+      if (url === 'http://example.test/') return route.fulfill({contentType: 'text/html', body: fs.readFileSync('frontend/index.html')});
+      return route.abort();
+    });
+    await page.goto('http://example.test/', {waitUntil:'networkidle'});
+    await page.locator('#introOverlay').evaluate(el => el.remove());
+    await page.evaluate(() => unlockIntroScroll());
+    await page.waitForTimeout(2500);
+    assert(marketRequests.some(url => url.includes('days=180')), 'history is prefetched without interaction');
+    const ma5 = page.getByRole('button', { name: 'MA5', exact: true });
+    await ma5.scrollIntoViewIfNeeded();
+    await ma5.click();
+    assert.equal(await ma5.getAttribute('aria-pressed'), 'false');
+    await ma5.click();
+    assert.equal(await ma5.getAttribute('aria-pressed'), 'true');
+    await page.waitForTimeout(250);
+    const crossing = await page.evaluate(() => {
+      const outside = document.querySelector('.market-title');
+      const canvas = document.querySelector('#marketChart canvas');
+      const options = { bubbles: true, cancelable: true, deltaY: 100 };
+      const before = window.__marketChart.timeScale().getVisibleLogicalRange();
+      const outsideAllowed = outside.dispatchEvent(new WheelEvent('wheel', options));
+      const chartAllowed = canvas.dispatchEvent(new WheelEvent('wheel', options));
+      const after = window.__marketChart.timeScale().getVisibleLogicalRange();
+      return { outsideAllowed, chartAllowed, before, after };
+    });
+    console.log('crossing', crossing);
+    assert(crossing.chartAllowed, 'wheel sequence from outside is not captured');
+    assert.deepEqual(crossing.after, crossing.before, 'wheel sequence from outside does not zoom');
+    await page.waitForTimeout(250);
+    const beforeControlWheel = await page.evaluate(() => window.__marketChart.timeScale().getVisibleLogicalRange());
+    await page.mouse.wheel(0, -100);
+    await page.waitForTimeout(150);
+    const afterControlWheel = await page.evaluate(() => window.__marketChart.timeScale().getVisibleLogicalRange());
+    assert(afterControlWheel.to - afterControlWheel.from < beforeControlWheel.to - beforeControlWheel.from, 'wheel over MA button zooms chart');
+    const chart = page.locator('#marketChart');
+    await chart.scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => window.__marketChart && window.__marketChart.timeScale().getVisibleLogicalRange());
+    const box = await chart.boundingBox();
+    const range = () => page.evaluate(() => window.__marketChart.timeScale().getVisibleLogicalRange());
+    await page.evaluate(() => window.__marketChart.timeScale().setVisibleLogicalRange({from: 40, to: 150}));
+    await page.mouse.move(box.x + box.width * .7, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * .2, box.y + box.height / 2, {steps: 12});
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    const drag = await range();
+    console.log('drag', drag);
+    assert(drag.to <= 299.6, 'drag cannot expose future');
+    await page.mouse.move(box.x + box.width * .7, box.y + box.height / 2);
+    const before = await range();
+    await page.mouse.wheel(0, 100);
+    await page.waitForTimeout(300);
+    const after = await range();
+    console.log('wheel', {before, after});
+    assert(Math.abs(before.to - after.to) < .1, 'zoom preserves right edge');
+    assert(after.from < before.from, 'zoom expands left');
+    const target = rows[100];
+    const x = await page.evaluate(time => window.__marketChart.timeScale().timeToCoordinate(time), target.time);
+    assert(x !== null && x > 0 && x < box.width, 'test candle is visible');
+    await page.mouse.click(box.x + x, box.y + box.height * .5);
+    await page.locator('#marketSelection').waitFor({state: 'visible'});
+    const selection = await page.locator('#marketSelection').textContent();
+    console.log('selection', selection);
+    assert.match(selection, /涨跌幅 \+0\.33%/);
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({width, height: 900});
+      await page.waitForTimeout(200);
+      const chartBox = await chart.boundingBox();
+      const selectionBox = await page.locator('#marketSelection').boundingBox();
+      for (const button of await page.locator('[data-market-ma], [data-market-period]').all()) {
+        const bounds = await button.boundingBox();
+        assert(bounds.x >= 0 && bounds.x + bounds.width <= width, `${width}: MA controls fit viewport`);
+      }
+      const scaleWidth = await page.evaluate(() => window.__marketChart.priceScale('right').width());
+      assert(selectionBox.y >= chartBox.y && selectionBox.y < chartBox.y + chartBox.height / 2, `${width}: selection is at the top of the chart`);
+      assert(selectionBox.x + selectionBox.width <= chartBox.x + chartBox.width - scaleWidth, `${width}: selection clears price scale`);
+      assert(selectionBox.x >= 0 && selectionBox.x + selectionBox.width <= width, `${width}: selection fits viewport`);
+    }
+    await page.setViewportSize({width: 1440, height: 900});
+    await page.evaluate(() => window.__marketChart.timeScale().setVisibleLogicalRange({from: 20, to: 110}));
+    const year = page.locator('.market-year-label').first();
+    await year.waitFor({state: 'visible'});
+    assert.equal(await year.textContent(), '2024年');
+    const yearStyle = await year.evaluate(el => ({weight: getComputedStyle(el).fontWeight, size: getComputedStyle(el).fontSize, color: getComputedStyle(el).color}));
+    console.log('year', yearStyle);
+    assert(Number(yearStyle.weight) >= 700 && parseFloat(yearStyle.size) >= 15);
+    const periodButton = label => page.getByRole('button', {name: label, exact: true});
+    await periodButton('周线').click();
+    assert.equal(await periodButton('周线').getAttribute('aria-pressed'), 'true');
+    assert.equal(await periodButton('日线').getAttribute('aria-pressed'), 'false');
+    await page.waitForTimeout(400);
+    const weekRange = await range();
+    assert(weekRange.to < 60, 'weekly aggregation has fewer than 60 candles');
+    await periodButton('月线').click();
+    assert.equal(await periodButton('月线').getAttribute('aria-pressed'), 'true');
+    await page.waitForTimeout(1200);
+    const monthRange = await range();
+    assert(monthRange.to < weekRange.to, 'monthly aggregation has fewer candles');
+    await periodButton('日线').click();
+    assert.equal(await periodButton('日线').getAttribute('aria-pressed'), 'true');
+    await page.waitForTimeout(100);
+    assert((await range()).to > weekRange.to, 'daily candles restored');
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });
