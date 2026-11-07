@@ -53,6 +53,7 @@ from src.agents.news_agent import news_agent            # 新闻分析智能体�
 
 # LangGraph工作流框架导入（构图逻辑在 workflow_builder 工厂内）
 from src.utils.workflow_builder import build_workflow
+from src.utils.observability import flush_traces, invoke_workflow
 
 # 环境变量和系统相关导入
 from dotenv import load_dotenv
@@ -302,7 +303,7 @@ async def main():
         print(f"{WAIT_ICON} 这可能需要几分钟时间，请耐心等待...\n")
 
         # 调用工作流 - 这是阻塞调用，会等待所有智能体完成
-        final_state = await app.ainvoke(initial_state)
+        final_state = await invoke_workflow(app, initial_state)
         print(f"{SUCCESS_ICON} 分析完成！")
         logger.info("Workflow execution completed successfully")
 
@@ -348,6 +349,8 @@ async def main():
         # 记录错误并完成执行日志
         finalize_execution_logger(success=False, error=str(e))
         print(f"{ERROR_ICON} 错误日志已保存到: {get_execution_logger().execution_dir}")
+    finally:
+        await flush_traces()
 
 
 # ============================================================================

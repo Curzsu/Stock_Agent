@@ -40,6 +40,7 @@ load_dotenv(env_path, override=True)
 
 # LangGraph imports
 from src.utils.workflow_builder import build_workflow
+from src.utils.observability import analysis_trace, flush_traces, invoke_agent, invoke_workflow
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
@@ -113,6 +114,7 @@ async def _shutdown_cleanup_mcp():
         await close_mcp_client_sessions()
     except Exception as e:
         print(f"Warning: MCP cleanup error on shutdown: {e}")
+    await flush_traces()
 
 # ============================================================================
 # Data Models
@@ -291,6 +293,24 @@ async def retry_agent_and_summary(
     selected_agent=None,
     summarizer=None,
 ) -> None:
+    session = analysis_sessions[analysis_id]
+    state = AgentState(messages=[], data=session.initial_data,
+                       metadata={"analysis_id": analysis_id, "retry": agent_key})
+    with analysis_trace(state, operation="retry") as run:
+        await _retry_agent_and_summary(analysis_id, agent_key, selected_agent, summarizer)
+        if run is not None:
+            errors = [f"{key}: {detail.get('error') or '分析未返回有效结果'}"
+                      for key, detail in session.agent_details.items() if detail["status"] == "failed"]
+            run.end(outputs={"status": session.status},
+                    error=session.error or "; ".join(errors) or None)
+
+
+async def _retry_agent_and_summary(
+    analysis_id: str,
+    agent_key: str,
+    selected_agent=None,
+    summarizer=None,
+) -> None:
     """Rerun one failed dimension, then rebuild the synthesis in place."""
     session = analysis_sessions[analysis_id]
     summary_fn = summarizer or summary_agent
@@ -305,7 +325,7 @@ async def retry_agent_and_summary(
             )
             if session.agent_details[agent_key]["status"] != "running":
                 mark_agent_status(session, agent_key, "running")
-            agent_result = await agent_fn(state)
+            agent_result = await invoke_agent(agent_fn, state, agent_key)
             record_agent_result(session, agent_key, agent_result)
             if session.agent_details[agent_key]["status"] == "failed":
                 finish_analysis_session(session)
@@ -323,7 +343,7 @@ async def retry_agent_and_summary(
         )
         active_agent = "summary"
         mark_agent_status(session, "summary", "running")
-        summary_result = await summary_fn(summary_state)
+        summary_result = await invoke_agent(summary_fn, summary_state, "summary")
         record_agent_result(session, "summary", summary_result)
         rebuild_session_result(session, (summary_result or {}).get("data", {}))
         finish_analysis_session(session)
@@ -644,7 +664,7 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         # 意外挂起，也能强制工作流结束，session 一定进入终态，前端不会永久卡住。
         # 超时后抛 TimeoutError 由下方 except 捕获置为 error。
         final_state = await asyncio.wait_for(
-            app_workflow.ainvoke(initial_state),
+            invoke_workflow(app_workflow, initial_state),
             timeout=WORKFLOW_TIMEOUT_SECONDS
         )
 

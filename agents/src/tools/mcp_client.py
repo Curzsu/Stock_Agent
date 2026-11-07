@@ -12,6 +12,7 @@ from mcp.types import CONNECTION_CLOSED
 
 from src.tools.mcp_config import SERVER_CONFIGS
 from src.utils.logging_config import ERROR_ICON, SUCCESS_ICON, WAIT_ICON, setup_logger
+from src.utils.observability import trace_scope
 
 
 logger = setup_logger(__name__)
@@ -57,19 +58,24 @@ def serialize_mcp_tools(tools, timeout_seconds=MCP_TOOL_TIMEOUT_SECONDS, *, sess
         async def guarded_coroutine(
             *args,
             _original_coroutine=original_coroutine,
+            _tool_name=tool.name,
             **kwargs,
         ):
-            async with _get_mcp_tool_lock():
+            lock = _get_mcp_tool_lock()
+            with trace_scope("mcp.queue", metadata={"tool": _tool_name}, run_type="tool"):
+                await lock.acquire()
+            try:
                 if session_owner is not None and (
                     session_owner is not _mcp_session_task
                     or not _session_is_healthy(asyncio.get_running_loop())
                 ):
                     raise ConnectionError("MCP 数据连接已失效，请重试分析以重新连接")
                 try:
-                    return await asyncio.wait_for(
-                        _original_coroutine(*args, **kwargs),
-                        timeout=timeout_seconds,
-                    )
+                    with trace_scope("mcp.execute", metadata={"tool": _tool_name}, run_type="tool"):
+                        return await asyncio.wait_for(
+                            _original_coroutine(*args, **kwargs),
+                            timeout=timeout_seconds,
+                        )
                 except Exception as error:
                     # The MCP receiver can close its streams without ending the
                     # context owner. Retire it on transport errors, not tool/data errors.
@@ -79,6 +85,8 @@ def serialize_mcp_tools(tools, timeout_seconds=MCP_TOOL_TIMEOUT_SECONDS, *, sess
                     if transport_closed and session_owner is not None and session_owner is _mcp_session_task:
                         _mcp_session_close_event.set()
                     raise
+            finally:
+                lock.release()
 
         protected_tools.append(
             tool.model_copy(update={"coroutine": guarded_coroutine})

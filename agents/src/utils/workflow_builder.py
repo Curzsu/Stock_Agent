@@ -21,6 +21,7 @@ from typing import Awaitable, Callable, Optional
 from langgraph.graph import StateGraph, END
 
 from src.utils.state_definition import AgentState
+from src.utils.observability import invoke_agent
 
 
 def build_workflow(
@@ -42,7 +43,7 @@ def build_workflow(
             async def cb(agent_key: str, status: str) -> None。
             agent_key ∈ {"fundamental","technical","value","news","summary"}，
             status ∈ {"running","completed"}。
-            传 None 时直接挂裸 agent（CLI 路径，零开销）。
+            传 None 时仅保留可选的 LangSmith 业务追踪。
 
     Returns:
         编译后的 LangGraph，可直接 await app.ainvoke(initial_state)。
@@ -52,7 +53,7 @@ def build_workflow(
     # 起始节点：并行扇出的清晰起点，不修改状态
     workflow.add_node("start_node", lambda state: state)
 
-    # 5 个 agent 节点。有 progress_callback 时包装一层，否则挂裸 agent。
+    # 5 个 agent 节点：共享业务追踪，并按需调用进度/结果回调。
     workflow.add_node("fundamental_analyst", _wrap(fundamental_agent, "fundamental", progress_callback, result_callback))
     workflow.add_node("technical_analyst", _wrap(technical_agent, "technical", progress_callback, result_callback))
     workflow.add_node("value_analyst", _wrap(value_agent, "value", progress_callback, result_callback))
@@ -81,14 +82,11 @@ def build_workflow(
 
 
 def _wrap(agent, agent_key, progress_callback, result_callback):
-    """用 progress 回调包装 agent。无 callback 时返回原 agent（零开销）。"""
-    if progress_callback is None and result_callback is None:
-        return agent
-
+    """统一 agent 追踪及可选的进度、结果回调。"""
     async def wrapped(state):
         if progress_callback is not None:
             await progress_callback(agent_key, "running")
-        result = await agent(state)
+        result = await invoke_agent(agent, state, agent_key)
         if result_callback is not None:
             await result_callback(agent_key, result)
         if progress_callback is not None:
