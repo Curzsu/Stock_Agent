@@ -3,7 +3,7 @@
 基于 LangGraph 与 MCP 的 A 股研究工具。输入公司名称或股票代码，由**基本面、技术面、估值和新闻**四路分析协作生成综合研报，支持在线阅读和文件导出。
 
 <p align="center">
-  <img src="images-README/image-20261102135108623.png" alt="FINEX 首页" width="600" />
+  <img src="images-README/image-20261102135108623.png" alt="FINEX 首页" width="520" />
 </p>
 
 
