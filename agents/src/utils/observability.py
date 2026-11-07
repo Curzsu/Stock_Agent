@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from langsmith import Client, trace, tracing_context
 from langchain_core.tracers.context import tracing_v2_enabled
+from src.utils.research_scope import research_scope, agent_role
 
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,7 @@ def finish_trace(run, result, agent_key=None):
 
 
 async def invoke_agent(agent, state, agent_key):
-    with trace_scope(f"finex.agent.{agent_key}",
+    with agent_role(agent_key), trace_scope(f"finex.agent.{agent_key}",
                      metadata={**trace_metadata(state), "agent": agent_key}) as run:
         result = await agent(state)
         finish_trace(run, result, agent_key)
@@ -132,10 +133,11 @@ async def invoke_agent(agent, state, agent_key):
 
 
 async def invoke_workflow(workflow, state):
-    with analysis_trace(state) as run:
-        result = await workflow.ainvoke(state, config={"metadata": trace_metadata(state)})
-        finish_trace(run, result)
-        return result
+    async with research_scope():
+        with analysis_trace(state) as run:
+            result = await workflow.ainvoke(state, config={"metadata": trace_metadata(state)})
+            finish_trace(run, result)
+            return result
 
 
 async def flush_traces():

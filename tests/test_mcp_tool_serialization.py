@@ -249,8 +249,9 @@ class TestMcpToolSerialization(unittest.IsolatedAsyncioTestCase):
         )
         protected = mcp_client.serialize_mcp_tools([tool], timeout_seconds=0.02)
 
-        with self.assertRaises(asyncio.TimeoutError):
-            await protected[0].ainvoke({})
+        result = await protected[0].ainvoke({})
+        self.assertIn('超时', result)
+        self.assertIn('hanging_probe', result)
 
     async def test_dead_session_is_replaced_once_for_concurrent_callers(self):
         for cancelled in (False, True):

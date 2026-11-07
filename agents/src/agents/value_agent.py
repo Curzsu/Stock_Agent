@@ -8,9 +8,11 @@ from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 import time
 import asyncio
+from src.utils.react_execution import run_react, AgentDeadlineExceeded
 
 from src.utils.state_definition import AgentState
 from src.tools.mcp_client import get_mcp_tools
+from src.utils.research_scope import tools_for_role
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
 from src.utils.execution_logger import get_execution_logger
 from src.utils.agent_output import extract_analysis_text
@@ -96,7 +98,7 @@ async def value_agent(state: AgentState) -> AgentState:
         # 2. 获取MCP工具集
         logger.info(f"{WAIT_ICON} ValueAgent: Fetching MCP tools...")
         try:
-            mcp_tools = await get_mcp_tools()
+            mcp_tools = tools_for_role(await get_mcp_tools(), 'value')
             if not mcp_tools:
                 logger.error(
                     f"{ERROR_ICON} ValueAgent: No MCP tools available.")
@@ -161,19 +163,19 @@ async def value_agent(state: AgentState) -> AgentState:
             # 调用 Agent执行分析（设置递归上限防止LLM陷入死循环）
             # 设置480秒（8分钟）总超时，防止LLM API挂起导致永久等待
             try:
-                response = await asyncio.wait_for(
-                    agent.ainvoke(input_data, config={"recursion_limit": REACT_RECURSION_LIMIT}),
-                    timeout=REACT_TIMEOUT_SECONDS
+                response = await run_react(
+                    agent, input_data, recursion_limit=REACT_RECURSION_LIMIT,
+                    timeout_seconds=REACT_TIMEOUT_SECONDS, llm=llm,
                 )
-            except asyncio.TimeoutError:
-                logger.error(f"{ERROR_ICON} ValueAgent: Agent execution timed out after 480 seconds")
+            except AgentDeadlineExceeded:
+                logger.error(f"{ERROR_ICON} ValueAgent: 分析总时限已到（{REACT_TIMEOUT_SECONDS:g} 秒）")
                 # P1-4: 失败时只写 error key，不写 analysis key，
                 # 否则错误文本会被 summary 当成分析结果喂给 LLM（静默失败）。
-                current_data["value_analysis_error"] = "Agent execution timed out after 480 seconds"
+                current_data["value_analysis_error"] = f"分析总时限已到（{REACT_TIMEOUT_SECONDS:g} 秒）"
                 current_metadata["value_agent_error"] = "Agent execution timed out"
 
                 execution_logger.log_agent_complete(
-                    agent_name, current_data, time.time() - agent_start_time, False, "Agent execution timed out after 480 seconds")
+                    agent_name, current_data, time.time() - agent_start_time, False, f"分析总时限已到（{REACT_TIMEOUT_SECONDS:g} 秒）")
 
                 return {"data": current_data, "messages": current_messages, "metadata": current_metadata}
 

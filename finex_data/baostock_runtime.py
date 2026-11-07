@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager, redirect_stdout
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import baostock as bs
@@ -81,6 +81,40 @@ def _state_directory():
     directory = Path(configured).expanduser().resolve() if configured else Path(__file__).resolve().parents[1] / ".runtime" / "baostock"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+def _request_budget():
+    path = _state_directory() / 'request-count.json'
+    day = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    try:
+        limit = int(os.getenv('BAOSTOCK_DAILY_REQUEST_LIMIT', '45000'))
+        if not 1 <= limit <= 50000:
+            raise ValueError('limit outside supported range')
+        saved = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'date':day,'count':0}
+        saved_day = datetime.strptime(saved['date'], '%Y-%m-%d').date().isoformat()
+        if saved_day > day:
+            raise ValueError('future counter date')
+        count = int(saved['count']) if saved_day == day else 0
+        if count < 0:
+            raise ValueError('negative request count')
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise BaostockDataError('BaoStock 请求配额记录或配置无效，已停止访问', retryable=False) from error
+    if count >= limit:
+        raise BaostockDataError(f'BaoStock 今日请求配额已到（{limit}），已停止访问', retryable=False)
+    return path, day, count, limit
+
+
+def _count_request():
+    """Called under the cross-process lease for every SDK send, including pages."""
+    path, day, count, limit = _request_budget()
+    temporary = path.with_suffix('.tmp')
+    try:
+        temporary.write_text(json.dumps({'date':day,'count':count+1}), encoding='utf-8')
+        temporary.replace(path)
+    except OSError as error:
+        raise BaostockDataError('BaoStock 请求配额无法保存，已停止访问', retryable=False) from error
+    if count < int(limit*.8) <= count+1:
+        logger.warning('BaoStock 今日请求已达到配额的 80%%（%s/%s）', count+1, limit)
 
 
 def _cooldown_seconds():
@@ -198,6 +232,7 @@ def _query_guard(deadline):
     original_send = bs_transport.send_msg
 
     def checked_send(*args, **kwargs):
+        _count_request()
         connection = getattr(bs_context, "default_socket", None)
         if connection is None:
             return original_send(*args, **kwargs)
@@ -221,6 +256,7 @@ def _query_guard(deadline):
         with _process_lease(deadline):
             try:
                 _check_blacklist()
+                _request_budget()  # Stop before login even creates a socket.
                 yield
             finally:
                 _end_session(deadline)

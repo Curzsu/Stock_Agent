@@ -9,10 +9,12 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from mcp.shared.exceptions import McpError
 from mcp.types import CONNECTION_CLOSED
+from langchain_core.tools import ToolException
 
 from src.tools.mcp_config import SERVER_CONFIGS
 from src.utils.logging_config import ERROR_ICON, SUCCESS_ICON, WAIT_ICON, setup_logger
 from src.utils.observability import trace_scope
+from src.utils.research_scope import reuse_query
 
 
 logger = setup_logger(__name__)
@@ -49,49 +51,101 @@ def _get_mcp_tool_lock():
     return _mcp_tool_lock
 
 
-def serialize_mcp_tools(tools, timeout_seconds=MCP_TOOL_TIMEOUT_SECONDS, *, session_owner=None):
+def serialize_mcp_tools(tools, timeout_seconds=None, *, session_owner=None):
     """Return tool copies whose async calls run one at a time with a deadline."""
     protected_tools = []
     for tool in tools:
         original_coroutine = tool.coroutine
+        budget = (float(os.getenv('MCP_COMPOSITE_TOOL_TIMEOUT_SECONDS', '180'))
+                  if tool.name == 'get_stock_analysis' else
+                  (MCP_TOOL_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds))
+        if budget <= 0:
+            raise ValueError('MCP 工具时限必须大于 0')
 
         async def guarded_coroutine(
             *args,
             _original_coroutine=original_coroutine,
             _tool_name=tool.name,
+            _budget=budget,
             **kwargs,
         ):
             lock = _get_mcp_tool_lock()
             with trace_scope("mcp.queue", metadata={"tool": _tool_name}, run_type="tool"):
                 await lock.acquire()
             try:
+                owner = session_owner
+                coroutine = _original_coroutine
                 if session_owner is not None and (
                     session_owner is not _mcp_session_task
                     or not _session_is_healthy(asyncio.get_running_loop())
                 ):
-                    raise ConnectionError("MCP 数据连接已失效，请重试分析以重新连接")
+                    fresh = await get_mcp_tools()
+                    replacement = next((t for t in fresh if t.name == _tool_name), None)
+                    if replacement is None:
+                        raise ToolException(f'MCP 工具 {_tool_name} 重连失败，请使用其他可用资料并明确数据缺失')
+                    coroutine = replacement.coroutine._mcp_original
+                    owner = _mcp_session_task
                 try:
                     with trace_scope("mcp.execute", metadata={"tool": _tool_name}, run_type="tool"):
                         return await asyncio.wait_for(
-                            _original_coroutine(*args, **kwargs),
-                            timeout=timeout_seconds,
+                            coroutine(*args, **kwargs),
+                            timeout=_budget,
                         )
+                except asyncio.TimeoutError as error:
+                    await _retire_timed_out_owner(owner)
+                    raise ToolException(
+                        f'MCP 工具 {_tool_name} 调用超时（{_budget:g} 秒）。旧会话已关闭；'
+                        '请改用更小的数据工具，或使用已取得资料并明确缺失项，勿重复同一失败请求。'
+                    ) from error
+                except asyncio.CancelledError:
+                    await _retire_timed_out_owner(owner)
+                    raise
                 except Exception as error:
                     # The MCP receiver can close its streams without ending the
                     # context owner. Retire it on transport errors, not tool/data errors.
                     transport_closed = isinstance(error, (
                         ConnectionError, BrokenResourceError, ClosedResourceError, EndOfStream,
                     )) or (isinstance(error, McpError) and error.error.code == CONNECTION_CLOSED)
-                    if transport_closed and session_owner is not None and session_owner is _mcp_session_task:
+                    if transport_closed and owner is not None and owner is _mcp_session_task:
                         _mcp_session_close_event.set()
                     raise
             finally:
                 lock.release()
 
+        guarded_coroutine._mcp_original = original_coroutine
+
+        async def reusable_coroutine(*args, _guard=guarded_coroutine, _tool=tool, **kwargs):
+            schema = _tool.args_schema
+            schema = schema.model_json_schema() if hasattr(schema, 'model_json_schema') else schema
+            properties = (schema or {}).get('properties', {})
+            arguments = {k: v['default'] for k, v in properties.items() if 'default' in v}
+            arguments.update(dict(zip(properties, args)))
+            arguments.update(kwargs)
+            return await reuse_query(_tool.name, arguments, lambda: _guard(*args, **kwargs))
+
+        reusable_coroutine._mcp_original = original_coroutine
         protected_tools.append(
-            tool.model_copy(update={"coroutine": guarded_coroutine})
+            tool.model_copy(update={"coroutine": reusable_coroutine, "handle_tool_error": True})
         )
     return protected_tools
+
+
+async def _retire_timed_out_owner(owner):
+    """Drain/terminate the old stdio process before allowing the next RPC."""
+    if owner is not None and owner is _mcp_session_task:
+        _mcp_session_close_event.set()
+
+        async def close_expected_owner():
+            async with _get_init_lock(asyncio.get_running_loop()):
+                if owner is _mcp_session_task:
+                    await _close_cached_session()
+
+        cleanup = asyncio.create_task(close_expected_owner())
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            await cleanup
+            raise
 
 
 def print_tool_details(tools):

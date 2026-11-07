@@ -48,7 +48,7 @@ jobs:
         run: |
           python -m compileall -q backend agents/src mcp-server/src mcp-server/mcp_server.py scripts tests mcp-server/tests
           node --check frontend/workbench.js
-          node --test tests/frontend/test_workbench.cjs
+          node --test tests/frontend/test_workbench.cjs tests/frontend/test_workbench_chart.cjs
 
       - name: Install application dependencies
         run: uv pip install --system --python "$(command -v python)" -r requirements-test.txt
