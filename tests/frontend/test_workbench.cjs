@@ -3,6 +3,16 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+
+test('all inline page scripts have valid JavaScript syntax', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)]
+    .filter((match) => !/\bsrc\s*=/i.test(match[1]));
+  assert.ok(scripts.length > 0, 'No inline scripts found');
+  for (const script of scripts) {
+    assert.doesNotThrow(() => new vm.Script(script[2], { filename: 'frontend/index.html' }));
+  }
+});
 const {
   derivePhase,
   normalizeAgentDetails,
