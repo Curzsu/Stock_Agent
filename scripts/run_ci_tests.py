@@ -12,13 +12,15 @@ MCP_TEST = "test_mcp_data_fallbacks.py"
 RUNTIME_TEST = "test_mcp_runtime.py"
 DIAGNOSTICS = {"test_mcp_direct.py", "test_langchain_mcp.py"}
 CHILD_RUNNER = """
-import sys, unittest
+import os, sys, unittest
 from pathlib import Path
 path = Path(sys.argv[1])
 suite = unittest.defaultTestLoader.discover(str(path.parent), pattern=path.name)
 if suite.countTestCases() == 0:
     sys.exit('No tests collected: ' + str(path))
 result = unittest.TextTestRunner(verbosity=2).run(suite)
+if path.name == 'test_report_layout.py' and os.getenv('FINEX_REQUIRE_PANDOC') == '1' and result.skipped:
+    sys.exit('Required Pandoc layout tests were skipped')
 sys.exit(0 if result.wasSuccessful() else 1)
 """
 
