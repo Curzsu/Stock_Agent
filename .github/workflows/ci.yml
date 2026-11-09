@@ -22,6 +22,7 @@ jobs:
       PYTHON_DOTENV_DISABLED: "1"
       USE_LOCAL_MODEL: api
       LANGSMITH_TRACING: "false"
+      FINEX_REQUIRE_PANDOC: "1"
       TZ: Asia/Shanghai
       UV_PYTHON: "3.10"
       UV_PYTHON_DOWNLOADS: never
@@ -52,6 +53,12 @@ jobs:
 
       - name: Install application dependencies
         run: uv pip install --system --python "$(command -v python)" -r requirements-test.txt
+
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pandoc
+          pandoc --version
 
       - name: Test application
         run: python scripts/run_ci_tests.py app

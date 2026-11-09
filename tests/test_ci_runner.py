@@ -7,6 +7,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +53,17 @@ class TestCiRunner(unittest.TestCase):
     def test_file_without_tests_is_not_success(self):
         path = self.write_test("test_empty.py", "VALUE = 42")
         self.assertNotEqual(runner.run_file(path), 0)
+
+    def test_required_pandoc_suite_cannot_pass_with_skipped_tests(self):
+        path = self.write_test("test_report_layout.py", """
+            import unittest
+            class TestLayout(unittest.TestCase):
+                @unittest.skip('Pandoc unavailable')
+                def test_layout(self):
+                    pass
+        """)
+        with patch.dict('os.environ', {'FINEX_REQUIRE_PANDOC': '1'}):
+            self.assertNotEqual(runner.run_file(path), 0)
 
     def test_successful_exit_during_collection_is_not_success(self):
         path = self.write_test("test_exit.py", "raise SystemExit(0)")
