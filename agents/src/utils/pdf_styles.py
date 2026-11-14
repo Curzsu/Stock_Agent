@@ -4,6 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 
 from src.utils.report_presentation import polish_report_markdown
 
@@ -28,7 +29,7 @@ def extract_title_info(raw_title: str) -> dict[str, str]:
     }
 
 
-def _prepare_markdown(content: str) -> tuple[str, str]:
+def _prepare_markdown(content: str) -> tuple[str, str, list[str]]:
     """Remove the duplicate cover title/TOC marker without discarding prose.
 
     Preserve fenced code verbatim. When an H1 report title is removed, promote
@@ -38,6 +39,8 @@ def _prepare_markdown(content: str) -> tuple[str, str]:
     fence = None
     title = ""
     body = []
+    advice_level = None
+    forecasts = []
     for line in lines:
         marker = _FENCE_RE.match(line)
         if marker:
@@ -57,6 +60,16 @@ def _prepare_markdown(content: str) -> tuple[str, str]:
             continue
         if line.strip().upper() == "[TOC]":
             continue
+        if heading:
+            level = len(heading.group(1))
+            if heading.group(2).rstrip("#").strip() == "投资建议":
+                advice_level = level
+            elif advice_level is not None and level <= advice_level:
+                advice_level = None
+        if advice_level is not None:
+            forecast = re.fullmatch(r" {0,3}- \*\*预期超额涨跌幅[：:]\*\*[ \t]*(.*)", line)
+            if forecast:
+                forecasts.append(forecast.group(1).strip())
         body.append((line, False))
 
     rendered = []
@@ -65,7 +78,30 @@ def _prepare_markdown(content: str) -> tuple[str, str]:
         if title and heading and len(heading.group(1)) > 1:
             line = line[1:]
         rendered.append(line)
-    return title, "\n".join(rendered).strip("\n") + "\n"
+    return title, "\n".join(rendered).strip("\n") + "\n", forecasts
+
+
+def _rating_metadata(forecasts: list[str]) -> dict[str, str]:
+    if not forecasts:
+        return {}
+    if len(forecasts) != 1:
+        return {"finex-rating": "暂不评级"}
+    match = re.fullmatch(r"([+-]?[0-9]{1,6}(?:\.[0-9]{1,6})?)\s*[%％]", forecasts[0])
+    if not match:
+        return {"finex-rating": "暂不评级"}
+
+    forecast = match.group(1)
+    excess = Decimal(forecast)
+    # Resolve shared endpoints in the published ranges at +20, +5 and -10.
+    if excess >= 20:
+        rating = "买入"
+    elif excess >= 5:
+        rating = "增持"
+    elif excess <= -10:
+        rating = "卖出"
+    else:
+        rating = "持有"
+    return {"finex-rating": rating, "finex-rating-excess": f"{forecast}%"}
 
 
 def prepare_report(
@@ -75,7 +111,7 @@ def prepare_report(
     analysis_date: str = "",
 ) -> ReportDocument:
     """Use native Pandoc Markdown for tables, equations, lists and links."""
-    title, markdown = _prepare_markdown(polish_report_markdown(md_content))
+    title, markdown, forecasts = _prepare_markdown(polish_report_markdown(md_content))
     info = extract_title_info(title)
     company = company_name or info["company_name"] or "金融分析报告"
     code = stock_code or info["stock_code"]
@@ -125,5 +161,6 @@ def prepare_report(
         "table-use-row-colors": True,
         "caption-justification": "raggedright",
         "lang": "en-US",
+        **_rating_metadata(forecasts),
     }
     return ReportDocument(markdown, metadata)

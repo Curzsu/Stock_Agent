@@ -1001,6 +1001,19 @@ $if(toccolor)$
 $endif$
 $endif$
 \setcounter{tocdepth}{$toc-depth$}
+$if(finex-rating)$
+\begin{FinexRating}
+{\small FINEX 个股评级}\par
+{\Large\bfseries $finex-rating$}\par
+{\small 未来 6 至 12 个月相对沪深 300
+$if(finex-rating-excess)$
+为 $finex-rating-excess$（预期）
+$else$
+（缺少可用的超额涨跌幅测算）
+$endif$
+\par 评级分档参考中信证券}
+\end{FinexRating}
+$endif$
 \tableofcontents
 $if(toc-own-page)$
 \newpage

@@ -18,6 +18,28 @@ sys.path.insert(0, str(ROOT / "agents"))
 
 
 class ReportPreparationTests(unittest.TestCase):
+    def test_toc_rating_uses_citic_boundaries(self):
+        from src.utils.pdf_styles import prepare_report
+
+        for excess, expected in (("+20", "买入"), ("+19.99", "增持"), ("+5", "增持"),
+                                 ("+4.99", "持有"), ("-9.99", "持有"), ("-10", "卖出")):
+            with self.subTest(excess=excess):
+                source = f"# 报告\n\n## 投资建议\n\n- **预期超额涨跌幅：** {excess}%\n"
+                report = prepare_report(source)
+                self.assertEqual(report.metadata["finex-rating"], expected)
+                self.assertEqual(report.metadata["finex-rating-excess"], f"{excess}%")
+
+    def test_toc_rating_handles_missing_forecasts_and_legacy_reports(self):
+        from src.utils.pdf_styles import prepare_report
+
+        source = "# 报告\n\n## 投资建议\n\n"
+        for value in ("无法估算", "5%～20%"):
+            report = prepare_report(source + f"- **预期超额涨跌幅：** {value}\n")
+            self.assertEqual(report.metadata["finex-rating"], "暂不评级")
+            self.assertNotIn("finex-rating-excess", report.metadata)
+        for body in ("建议持有。", "```\n- **预期超额涨跌幅：** +30%\n```"):
+            self.assertNotIn("finex-rating", prepare_report(source + body).metadata)
+
     def test_keeps_intro_tables_math_and_code_when_removing_cover_title(self):
         from src.utils.pdf_styles import prepare_report
 
