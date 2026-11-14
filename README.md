@@ -98,7 +98,9 @@ python -m uvicorn backend.server:app --host 127.0.0.1 --port 8100
 
 打开 [http://localhost:8100](http://localhost:8100)，输入公司名称或股票代码开始研究。也可使用 [Windows 启动脚本](scripts/start_server.bat) 或 [Linux/macOS 启动脚本](scripts/start_server.sh)。
 
-模型配置修改后需重启服务。页面中的 API 配置仅允许通过本机 `localhost`、`127.0.0.1` 或 `[::1]` 修改；更换 Base URL 时需重新填写对应密钥。密钥保存在本机配置中，不要提交到仓库。
+从首页打开「配置 API Key」，可在 A–E 页签分别保存 API Key、Base URL 和 Model。已有配置默认归入 A。点击「启用」后，新发起的研究使用所选配置，已经发起的研究和它的重试继续使用启动时的配置，无需重启服务。历史记录会标明使用的配置。
+
+页面中的 API 配置仅允许通过本机 `localhost`、`127.0.0.1` 或 `[::1]` 修改。更换 Base URL 时需重新填写对应密钥。五套配置及启用状态保存在本机 `agents/.env` 中，请勿提交该文件。
 
 ## PDF 导出
 
