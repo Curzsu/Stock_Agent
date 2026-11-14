@@ -5,11 +5,13 @@ Summary Agent: Consolidates analyses from other agents into a final report.
 import os
 import time
 import asyncio
+from datetime import datetime
 from typing import Dict, Any
 import re
 
 from src.utils.state_definition import AgentState
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
+from src.utils.api_settings import current_api_settings
 from src.utils.execution_logger import get_execution_logger
 from src.utils.pdf_converter import start_pdf_generation
 from src.utils.agent_config import REACT_TIMEOUT_SECONDS
@@ -402,9 +404,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
             logger.info(f"{WAIT_ICON} SummaryAgent: Using OpenAI API...")
             
             # 创建OpenAI模型（使用直接API调用，而不是ReAct框架进行汇总）
-            api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY")
-            base_url = os.getenv("OPENAI_COMPATIBLE_BASE_URL")
-            model_name = os.getenv("OPENAI_COMPATIBLE_MODEL")
+            api_key, base_url, model_name = current_api_settings()
 
             # 验证必要的环境变量是否存在
             if not all([api_key, base_url, model_name]):
@@ -495,7 +495,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         logger.debug(f"Final report preview: {final_report[:300]}...")
 
         # 将报告保存到Markdown文件
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
         # 处理公司名称和股票代码，确保文件名有意义
         if stock_code == "Unknown Stock" or stock_code == "Extracted from analysis":
@@ -591,7 +591,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         current_data["final_report"] = error_report
 
         # 也将错误报告保存到文件
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
         # 处理公司名称和股票代码，确保文件名有意义
         if stock_code == "Unknown Stock" or stock_code == "Extracted from analysis":

@@ -10,6 +10,7 @@
 本测试用 FastAPI TestClient 验证端点行为,不碰真实 agents/.env:
 - 持久化测试用 monkeypatch 把 server.env_path 指向临时文件
 """
+import asyncio
 import os
 import sys
 import tempfile
@@ -121,6 +122,83 @@ class TestPostApiConfig(unittest.TestCase):
         self.assertEqual(os.environ["OPENAI_COMPATIBLE_API_KEY"], "sk-new-key-5678")
         self.assertEqual(os.environ["OPENAI_COMPATIBLE_BASE_URL"], "https://new.example.com/v1")
         self.assertEqual(os.environ["OPENAI_COMPATIBLE_MODEL"], "new-model")
+
+    def test_profiles_preserve_legacy_a_and_activation(self):
+        legacy = {
+            "OPENAI_COMPATIBLE_API_KEY": "sk-legacy-private",
+            "OPENAI_COMPATIBLE_BASE_URL": "https://legacy.example/v1",
+            "OPENAI_COMPATIBLE_MODEL": "legacy-model",
+        }
+        with patch.dict(os.environ, legacy):
+            before = self.client.get("/api/config/profiles").json()
+            self.assertEqual(before["active_profile"], "A")
+            self.assertEqual(set(before["profiles"]), set("ABCDE"))
+            self.assertEqual(before["profiles"]["A"]["model"], "legacy-model")
+            self.assertEqual(self.client.put("/api/config/profiles/B?activate=true", json={}).status_code, 422)
+
+            alternate = {"api_key": "sk-alternate-private", "base_url": "https://b.example/v1", "model": "b-model"}
+            saved = self.client.put("/api/config/profiles/B", json=alternate)
+            self.assertEqual(saved.status_code, 200)
+            self.assertNotIn(alternate["api_key"], saved.text)
+            self.assertEqual(os.environ["OPENAI_COMPATIBLE_MODEL"], "legacy-model")
+            self.assertEqual(self.client.put("/api/config/profiles/F", json=alternate).status_code, 422)
+
+            with patch.object(self.server, "ChatOpenAI") as llm:
+                llm.return_value.ainvoke = AsyncMock(return_value=MagicMock(content="ok"))
+                check = self.client.post("/api/config/profiles/B/test", json={"model": "b-preview"})
+                self.assertTrue(check.json()["ok"])
+                self.assertEqual(llm.call_args.kwargs["api_key"], alternate["api_key"])
+                self.assertEqual(llm.call_args.kwargs["model"], "b-preview")
+                self.assertEqual(self.client.post("/api/config/profiles/B/test", json={
+                    "base_url": "https://other.example/v1"
+                }).status_code, 422)
+                self.assertEqual(llm.call_count, 1)
+
+            self.assertEqual(self.client.put("/api/config/profiles/B?activate=true", json={}).status_code, 200)
+            self.assertEqual(os.environ["OPENAI_COMPATIBLE_MODEL"], "b-model")
+            self.assertEqual(self.client.get("/api/config").json()["model"], "b-model")
+            from dotenv import dotenv_values
+            persisted = dotenv_values(self._tmp_env)
+            self.assertEqual(persisted["FINEX_API_ACTIVE_PROFILE"], "B")
+            self.assertEqual(persisted["OPENAI_COMPATIBLE_API_KEY"], alternate["api_key"])
+            self.assertEqual(self.client.put("/api/config/profiles/A?activate=true", json={}).status_code, 200)
+            self.assertEqual(os.environ["OPENAI_COMPATIBLE_API_KEY"], legacy["OPENAI_COMPATIBLE_API_KEY"])
+
+    def test_running_analysis_keeps_original_provider_when_profile_changes(self):
+        from src.utils.api_settings import current_api_settings
+
+        async def scenario():
+            entered = asyncio.Event()
+            switched = asyncio.Event()
+            done = asyncio.Event()
+            seen = {}
+
+            async def analyze(analysis_id, query):
+                snapshot = current_api_settings()
+                if query == "600900":
+                    entered.set()
+                    await switched.wait()
+                seen[query] = (snapshot.model, current_api_settings().model)
+                if len(seen) == 2:
+                    done.set()
+
+            a = self.server.ApiConfigRequest(
+                api_key="a-key", base_url="https://a.example/v1", model="a-model")
+            b = self.server.ApiConfigRequest(
+                api_key="b-key", base_url="https://b.example/v1", model="b-model")
+            with patch.object(self.server, "run_analysis_workflow", side_effect=analyze):
+                await self.server.save_api_profile("A", a, activate=True)
+                await self.server.start_analysis(self.server.AnalyzeRequest(query="600900"))
+                await asyncio.wait_for(entered.wait(), timeout=2)
+                await self.server.save_api_profile("B", b, activate=True)
+                await self.server.start_analysis(self.server.AnalyzeRequest(query="600900 B"))
+                switched.set()
+                await asyncio.wait_for(done.wait(), timeout=2)
+            self.assertEqual(seen, {"600900": ("a-model", "a-model"), "600900 B": ("b-model", "b-model")})
+            self.assertEqual([session.api_profile for session in self.server.analysis_sessions.values()], ["A", "B"])
+
+        with patch.dict(os.environ), patch.object(self.server, "analysis_sessions", {}):
+            asyncio.run(scenario())
 
     def test_post_config_persists_to_env_file(self):
         """POST 后,.env 文件被更新(重启后 load_dotenv 能读到新值)。"""
@@ -248,7 +326,11 @@ class TestConfigAccess(unittest.TestCase):
             ("127.0.0.1", "http://untrusted.example", {}),
         ]:
             client = TestClient(server.app, base_url=base_url, client=(client_host, 50000))
-            for method, path in [("GET", "/api/config"), ("POST", "/api/config"), ("POST", "/api/config/test")]:
+            for method, path in [
+                ("GET", "/api/config"), ("POST", "/api/config"), ("POST", "/api/config/test"),
+                ("GET", "/api/config/profiles"), ("PUT", "/api/config/profiles/B?activate=true"),
+                ("POST", "/api/config/profiles/B/test"),
+            ]:
                 with self.subTest(client_host=client_host, base_url=base_url, path=path, method=method):
                     with patch.object(server, "update_env_file") as persist, patch.object(server, "ChatOpenAI") as llm:
                         response = client.request(method, path, headers=headers, json={"model": "new-model"})

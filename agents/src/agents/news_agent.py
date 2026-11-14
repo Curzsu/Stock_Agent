@@ -2,7 +2,6 @@
 NewsAnalysis Agent: Performs news analysis with sentiment and risk assessment using ReAct Agent framework.
 新闻分析 Agent：使用ReAct Agent框架进行新闻分析，包含情感分析和风险评估
 """
-import os
 from src.utils.chat_model import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
@@ -14,6 +13,7 @@ from src.utils.state_definition import AgentState
 from src.tools.mcp_client import get_mcp_tools
 from src.utils.research_scope import tools_for_role
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
+from src.utils.api_settings import current_api_settings
 from src.utils.execution_logger import get_execution_logger
 from src.utils.agent_output import extract_analysis_text
 from src.utils.report_presentation import REPORT_STYLE_GUIDANCE, polish_report_markdown
@@ -74,9 +74,7 @@ async def news_agent(state: AgentState) -> AgentState:
 
     try:
         # 使用API调用
-        api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY")
-        base_url = os.getenv("OPENAI_COMPATIBLE_BASE_URL")
-        model_name = os.getenv("OPENAI_COMPATIBLE_MODEL")
+        api_key, base_url, model_name = current_api_settings()
 
         # 验证必要的环境变量是否存在
         if not all([api_key, base_url, model_name]):

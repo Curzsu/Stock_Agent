@@ -1535,7 +1535,9 @@
 
     .config-modal {
       width: 90%;
-      max-width: 440px;
+      max-width: 480px;
+      max-height: calc(100dvh - 2rem);
+      overflow-y: auto;
       padding: 2rem;
       background: rgba(255, 255, 255, 0.75);
       backdrop-filter: blur(20px);
@@ -1567,6 +1569,54 @@
     }
 
     .config-field { margin-bottom: 1.25rem; }
+
+    .config-profile-nav {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 0.35rem;
+      margin-bottom: 0.65rem;
+      padding: 0.3rem;
+      border-radius: var(--radius-md);
+      background: rgba(0, 0, 0, 0.05);
+    }
+
+    .config-profile-nav button {
+      position: relative;
+      min-height: 38px;
+      border: 1px solid transparent;
+      border-radius: 0.65rem;
+      background: transparent;
+      color: var(--gray-600);
+      font: 600 0.9rem var(--font-body);
+      cursor: pointer;
+    }
+
+    .config-profile-nav button[aria-pressed="true"] {
+      border-color: rgba(0, 0, 0, 0.07);
+      background: white;
+      color: var(--black);
+    }
+
+    .config-profile-nav button[data-active]::after {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #39734f;
+      content: '';
+    }
+
+    .config-profile-status {
+      margin: 0 0 1.25rem;
+      color: var(--gray-600);
+      font: 0.8rem var(--font-body);
+    }
+
+    #configModal .config-actions { flex-wrap: wrap; gap: 0.5rem; }
+    #configModal .config-actions button { padding-inline: 1rem; }
+    #configModal button:disabled { opacity: 0.5; cursor: default; }
 
     .config-field-label {
       display: block;
@@ -2333,14 +2383,22 @@
   </section>
 
   <!-- 配置 API Key 弹窗 (放在 script 之前,确保 DOM 就绪) -->
-  <div class="config-modal-overlay hidden" id="configModalOverlay">
-    <div class="config-modal" id="configModal">
-      <h2 class="config-modal-title">配置 API Key</h2>
-      <p class="config-modal-desc">配置 OpenAI 兼容 API 参数,保存后立即生效且持久化到 .env</p>
+  <div class="config-modal-overlay hidden" id="configModalOverlay" inert>
+    <div class="config-modal" id="configModal" role="dialog" aria-modal="true" aria-labelledby="configModalTitle">
+      <h2 class="config-modal-title" id="configModalTitle">配置 API Key</h2>
+      <p class="config-modal-desc">保存最多五套配置。新报告使用当前启用的配置。</p>
+      <div class="config-profile-nav" id="configProfiles" role="group" aria-label="API 配置">
+        <button type="button" data-profile="A" aria-pressed="false">A</button>
+        <button type="button" data-profile="B" aria-pressed="false">B</button>
+        <button type="button" data-profile="C" aria-pressed="false">C</button>
+        <button type="button" data-profile="D" aria-pressed="false">D</button>
+        <button type="button" data-profile="E" aria-pressed="false">E</button>
+      </div>
+      <p class="config-profile-status" id="configProfileStatus" role="status"></p>
       <div class="config-field">
         <label class="config-field-label" for="configApiKey">API Key</label>
         <div class="config-input-wrapper">
-          <input type="password" class="config-input" id="configApiKey" placeholder="sk-..." autocomplete="off">
+          <input type="password" class="config-input" id="configApiKey" placeholder="输入 API Key" autocomplete="off">
         </div>
       </div>
       <div class="config-field">
@@ -2358,7 +2416,8 @@
       <div class="config-actions">
         <button class="config-cancel-btn" id="configCancelBtn">取消</button>
         <button class="config-test-btn" id="configTestBtn">测试连通性</button>
-        <button class="config-save-btn" id="configSaveBtn">保存</button>
+        <button class="config-test-btn" id="configSaveBtn">保存</button>
+        <button class="config-save-btn" id="configActivateBtn">启用</button>
       </div>
     </div>
   </div>
@@ -2375,7 +2434,7 @@
     </div>
   </div>
 
-  <div class="config-toast" id="configToast"></div>
+  <div class="config-toast" id="configToast" role="status"></div>
 
   <script src="/static/workbench.js"></script>
   <script>
@@ -3100,10 +3159,33 @@
     document.getElementById('configCancelBtn').addEventListener('click', closeConfigModal);
     document.getElementById('configSaveBtn').addEventListener('click', saveConfig);
     document.getElementById('configTestBtn').addEventListener('click', testConfigConnectivity);
+    document.getElementById('configActivateBtn').addEventListener('click', activateConfig);
+    document.getElementById('configProfiles').addEventListener('click', event => {
+      const profile = event.target.dataset.profile;
+      if (!profile || configBusy || !configState) return;
+      configDrafts[selectedProfile] = configPayload();
+      selectedProfile = profile;
+      renderConfigProfile();
+    });
+    document.getElementById('configModal').addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        closeConfigModal();
+      } else if (event.key === 'Tab') {
+        const controls = event.currentTarget.querySelectorAll('button:not(:disabled), input:not(:disabled)');
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    });
     // 点遮罩关闭弹窗（需按下与松开都在遮罩上，避免选中文字拖出时误关）
     {
       const overlay = document.getElementById('configModalOverlay');
-      const modal = document.getElementById('configModal');
       let pressedOnOverlay = false;
       overlay.addEventListener('mousedown', (e) => {
         pressedOnOverlay = e.target === overlay;
@@ -3194,7 +3276,7 @@
             <div class="history-card-header">
               <div class="history-card-info">
                 <div class="history-card-title" title="${escapeReportHtml(item.company_name || '未知')}">${escapeReportHtml(item.company_name || '未知')}</div>
-                <div class="history-card-code">${escapeReportHtml(item.stock_code || '-')}</div>
+              <div class="history-card-code">${escapeReportHtml(item.stock_code || '-')}${item.api_profile ? ' · 配置 ' + escapeReportHtml(item.api_profile) : ''}</div>
               </div>
               <div class="history-card-date">${statusLabel}</div>
             </div>
@@ -3440,117 +3522,140 @@
     const configApiKeyInput = document.getElementById('configApiKey');
     const configBaseUrlInput = document.getElementById('configBaseUrl');
     const configModelInput = document.getElementById('configModel');
-    const configSaveBtn = document.getElementById('configSaveBtn');
+    const configActivateBtn = document.getElementById('configActivateBtn');
+    const configProfileStatus = document.getElementById('configProfileStatus');
+    const configProfileTabs = document.querySelectorAll('#configProfiles [data-profile]');
     const configToast = document.getElementById('configToast');
+    const configUrl = API_BASE + '/config/profiles';
+    const configControls = document.querySelectorAll('#configModal input, #configModal button:not(#configCancelBtn)');
+    let configState = null;
+    let selectedProfile = 'A';
+    let configDrafts = {};
+    let configBusy = false;
+    let configToastTimer;
 
     function showConfigToast(message, isError = false) {
+      clearTimeout(configToastTimer);
       configToast.textContent = message;
       configToast.classList.toggle('error', isError);
       configToast.classList.add('show');
-      setTimeout(() => configToast.classList.remove('show'), 2500);
+      configToastTimer = setTimeout(() => configToast.classList.remove('show'), 3500);
+    }
+
+    function renderConfigProfile() {
+      const saved = configState?.profiles[selectedProfile] || {};
+      const draft = configDrafts[selectedProfile];
+      configApiKeyInput.value = draft?.api_key || '';
+      configApiKeyInput.placeholder = saved.has_api_key ? '已保存，留空保留原密钥' : '输入 API Key';
+      configBaseUrlInput.value = draft?.base_url ?? saved.base_url ?? '';
+      configModelInput.value = draft?.model ?? saved.model ?? '';
+      for (const tab of configProfileTabs) {
+        tab.setAttribute('aria-pressed', String(tab.dataset.profile === selectedProfile));
+        tab.toggleAttribute('data-active', tab.dataset.profile === configState?.active_profile);
+      }
+      configProfileStatus.textContent = configState
+        ? '当前启用 ' + configState.active_profile + ' · 配置 ' + selectedProfile
+          + (saved.has_api_key && saved.base_url && saved.model ? ' 已保存' : ' 未配置完整')
+        : '正在加载配置…';
+      updateConfigControls();
+    }
+
+    function updateConfigControls() {
+      for (const control of configControls) control.disabled = configBusy || !configState;
+      configActivateBtn.disabled ||= selectedProfile === configState?.active_profile;
+    }
+
+    async function requestConfig(url, method = 'GET', payload) {
+      const options = { method, cache: 'no-store' };
+      if (payload !== undefined) {
+        options.headers = { 'Content-Type': 'application/json' };
+        options.body = JSON.stringify(payload);
+      }
+      const response = await fetch(url, options);
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '配置操作失败');
+      return data;
     }
 
     async function openConfigModal() {
-      // 先显示弹窗,再异步加载当前配置填入
+      if (configBusy) return;
+      configState = null;
+      configDrafts = {};
+      configBusy = true;
+      configModalOverlay.inert = false;
       configModalOverlay.classList.remove('hidden');
-      configApiKeyInput.value = '';
-      configBaseUrlInput.value = '';
-      configModelInput.value = '';
+      renderConfigProfile();
+      document.getElementById('configCancelBtn').focus();
       try {
-        const resp = await fetch(`${API_BASE}/config`);
-        if (resp.ok) {
-          const data = await resp.json();
-          // api_key 是脱敏值(如 sk-***1234),填入让用户知道当前配的啥
-          configApiKeyInput.value = data.api_key || '';
-          configBaseUrlInput.value = data.base_url || '';
-          configModelInput.value = data.model || '';
-        }
-      } catch (err) {
-        console.error('Failed to load config:', err);
+        configState = await requestConfig(configUrl);
+        selectedProfile = configState.active_profile;
+      } catch (error) {
+        showConfigToast(error.message || '读取配置失败', true);
+        closeConfigModal();
+      } finally {
+        configBusy = false;
+        if (!configModalOverlay.inert) renderConfigProfile();
       }
     }
 
     function closeConfigModal() {
       configModalOverlay.classList.add('hidden');
+      configModalOverlay.inert = true;
+      configApiKeyInput.value = '';
+      configDrafts = {};
+      document.getElementById('configBtn').focus();
     }
 
-    async function saveConfig() {
-      const payload = {};
-      // 只发送非空字段,空值表示不改(保留原值)
-      // 注意:api_key 可能是脱敏回显值,若用户没改直接点保存,不应把脱敏值写回去
-      const apiKeyVal = configApiKeyInput.value.trim();
-      const baseUrlVal = configBaseUrlInput.value.trim();
-      const modelVal = configModelInput.value.trim();
-      // 只有不含 *** 的 api_key 才视为用户输入的新值
-      if (apiKeyVal && !apiKeyVal.includes('***')) payload.api_key = apiKeyVal;
-      if (baseUrlVal) payload.base_url = baseUrlVal;
-      if (modelVal) payload.model = modelVal;
+    function configPayload() {
+      const payload = {
+        base_url: configBaseUrlInput.value.trim(),
+        model: configModelInput.value.trim(),
+      };
+      const apiKey = configApiKeyInput.value.trim();
+      if (apiKey) payload.api_key = apiKey;
+      return payload;
+    }
 
-      if (Object.keys(payload).length === 0) {
-        closeConfigModal();
-        return;
-      }
-
-      configSaveBtn.disabled = true;
-      configSaveBtn.textContent = '保存中...';
+    async function runConfigAction(action) {
+      if (configBusy || !configState) return;
+      const profile = selectedProfile;
+      const payload = configPayload();
+      configBusy = true;
+      updateConfigControls();
       try {
-        const resp = await fetch(`${API_BASE}/config`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const data = await resp.json();
-        if (resp.ok && data.status !== 'warning') {
-          showConfigToast('配置已更新');
-          closeConfigModal();
-        } else if (data.status === 'warning') {
-          showConfigToast(data.message, true);
-          closeConfigModal();
-        } else {
-          showConfigToast(data.detail || '保存失败', true);
-        }
-      } catch (err) {
-        console.error('Failed to save config:', err);
-        showConfigToast('网络错误,保存失败', true);
+        await action(configUrl + '/' + profile, payload, profile);
+      } catch (error) {
+        showConfigToast(error.message || '配置操作失败', true);
       } finally {
-        configSaveBtn.disabled = false;
-        configSaveBtn.textContent = '保存';
+        configBusy = false;
+        if (!configModalOverlay.inert) renderConfigProfile();
       }
     }
 
-    async function testConfigConnectivity() {
-      // 用当前表单里输入的值测试连通性，让反馈与用户正在填的内容一致。
-      // api_key 若为脱敏回显值（含 ***）则不传，由后端回退到已保存配置。
-      const testBtn = document.getElementById('configTestBtn');
-      testBtn.disabled = true;
-      const originalText = testBtn.textContent;
-      testBtn.textContent = '测试中...';
-      const payload = {};
-      const apiKeyVal = configApiKeyInput.value.trim();
-      const baseUrlVal = configBaseUrlInput.value.trim();
-      const modelVal = configModelInput.value.trim();
-      if (apiKeyVal && !apiKeyVal.includes('***')) payload.api_key = apiKeyVal;
-      if (baseUrlVal) payload.base_url = baseUrlVal;
-      if (modelVal) payload.model = modelVal;
-      try {
-        const resp = await fetch(`${API_BASE}/config/test`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const data = await resp.json();
-        if (data.ok) {
-          showConfigToast(data.message || '连通正常');
-        } else {
-          showConfigToast(data.detail || data.error || '连通失败', true);
-        }
-      } catch (err) {
-        console.error('Failed to test config:', err);
-        showConfigToast('网络错误,测试失败', true);
-      } finally {
-        testBtn.disabled = false;
-        testBtn.textContent = originalText;
-      }
+    function saveConfig() {
+      configDrafts[selectedProfile] = configPayload();
+      return runConfigAction(async (url, payload, profile) => {
+        configState = await requestConfig(url, 'PUT', payload);
+        delete configDrafts[profile];
+        showConfigToast('配置 ' + profile + ' 已保存');
+      });
+    }
+
+    function activateConfig() {
+      configDrafts[selectedProfile] = configPayload();
+      return runConfigAction(async (url, payload, profile) => {
+        configState = await requestConfig(url + '?activate=true', 'PUT', payload);
+        delete configDrafts[profile];
+        showConfigToast('配置 ' + profile + ' 已启用');
+      });
+    }
+
+    function testConfigConnectivity() {
+      configDrafts[selectedProfile] = configPayload();
+      return runConfigAction(async (url, payload) => {
+        const result = await requestConfig(url + '/test', 'POST', payload);
+        showConfigToast(result.ok ? result.message : result.error || '连通失败', !result.ok);
+      });
     }
 
     function startAnalysis() {

@@ -14,9 +14,10 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 import re
+import tempfile
 from ipaddress import ip_address
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from pathlib import Path
 
 # Add project root and Financial-MCP-Agent to path
@@ -29,11 +30,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 import baostock as bs
 
 # Import agent system components
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
+from src.utils.api_settings import API_ENV_KEYS, ApiSettings, current_api_settings, use_api_settings
 # Load .env from agents folder
 env_path = Path(__file__).parent.parent / "agents" / ".env"
 load_dotenv(env_path, override=True)
@@ -68,6 +70,12 @@ from backend.market_data import fetch_stock_market
 
 # Import MCP cleanup function
 from src.tools.mcp_client import close_mcp_client_sessions
+
+# Profile values are literal, including a dollar sign in a provider credential.
+PROFILE_ENV_KEY = "FINEX_API_ACTIVE_PROFILE"
+if os.getenv(PROFILE_ENV_KEY):
+    settings = dotenv_values(env_path, interpolate=False)
+    os.environ.update({key: settings[key] for key in API_ENV_KEYS if settings.get(key) is not None})
 
 # 整个分析工作流的总超时（秒）。4 个分析 Agent 并行各最多
 # REACT_TIMEOUT_SECONDS(480s)，随后 summary Agent 再最多 480s，
@@ -390,6 +398,8 @@ class AnalysisStatus(BaseModel):
     partial_results: Dict[str, Any] = Field(default_factory=dict)
     current_task: Optional[str] = None
     initial_data: Dict[str, Any] = Field(default_factory=dict)
+    api_profile: Optional[str] = None
+    _api_settings: ApiSettings = PrivateAttr(default_factory=current_api_settings)
 
 
 class ApiConfigRequest(BaseModel):
@@ -423,13 +433,12 @@ def require_local_page_access(request: Request, message: str) -> None:
         raise HTTPException(status_code=403, detail=message)
 
 
-def validate_config_destination(config: ApiConfigRequest) -> None:
+def validate_config_destination(config: ApiConfigRequest, saved: ApiSettings) -> None:
     """Never carry a saved credential to a newly supplied service URL."""
-    saved_url = os.getenv("OPENAI_COMPATIBLE_BASE_URL", "").rstrip("/")
     if (
         config.base_url is not None
-        and config.base_url.rstrip("/") != saved_url
-        and os.getenv("OPENAI_COMPATIBLE_API_KEY")
+        and config.base_url.rstrip("/") != saved.base_url.rstrip("/")
+        and saved.api_key
         and not config.api_key
     ):
         raise HTTPException(status_code=422, detail="更换 Base URL 时请重新输入 API Key")
@@ -453,6 +462,7 @@ def update_env_file(path, updates: dict) -> None:
         path: .env 文件路径
         updates: {env_key: new_value} 只含需要更新的项
     """
+    path = Path(path)
     remaining = dict(updates)  # 待写入的 key(文件里没有的会追加)
     out_lines = []
 
@@ -466,19 +476,35 @@ def update_env_file(path, updates: dict) -> None:
                     continue
                 # 解析 KEY=VALUE
                 if "=" in stripped:
-                    key = stripped.split("=", 1)[0].strip()
+                    key = stripped.split("=", 1)[0].strip().removeprefix("export ").strip()
                     if key in updates:
-                        out_lines.append(f"{key}={updates[key]}\n")
-                        remaining.pop(key, None)
+                        if key in remaining:
+                            out_lines.append(_env_assignment(key, remaining.pop(key)))
                         continue
                 out_lines.append(line)
 
     # 文件里没有的 key,追加到末尾
-    for key, value in remaining.items():
-        out_lines.append(f"{key}={value}\n")
+    if remaining and out_lines and not out_lines[-1].endswith("\n"):
+        out_lines.append("\n")
+    out_lines.extend(_env_assignment(key, value) for key, value in remaining.items())
 
-    with open(path, "w", encoding="utf-8") as f:
-        f.writelines(out_lines)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=".env.", suffix=".local", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.writelines(out_lines)
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _env_assignment(key: str, value: str) -> str:
+    if re.fullmatch(r"[\w./:+@%=-]*", value):
+        return f"{key}={value}\n"
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    return f"{key}='{escaped}'\n"
 
 
 # ============================================================================
@@ -731,7 +757,8 @@ async def start_analysis(request: AnalyzeRequest):
             "news": "waiting",
             "summary": "waiting"
         },
-        query=request.query
+        query=request.query,
+        api_profile=active_profile(),
     )
 
     analysis_sessions[analysis_id] = session
@@ -740,7 +767,8 @@ async def start_analysis(request: AnalyzeRequest):
     # BackgroundTasks 会在响应发送后 await 该协程,期间阻塞事件循环,
     # 导致 /api/status 轮询请求无法被处理(服务器看起来"卡住")。
     # create_task 让工作流与请求处理并发执行,轮询能正常响应。
-    asyncio.create_task(run_analysis_workflow(analysis_id, request.query))
+    with use_api_settings(session._api_settings):
+        asyncio.create_task(run_analysis_workflow(analysis_id, request.query))
 
     return {
         "analysis_id": analysis_id,
@@ -807,7 +835,8 @@ async def retry_failed_agent(analysis_id: str, agent_key: str):
     session.status = "running"
     session.error = None
     session.end_time = None
-    asyncio.create_task(retry_agent_and_summary(analysis_id, agent_key))
+    with use_api_settings(session._api_settings):
+        asyncio.create_task(retry_agent_and_summary(analysis_id, agent_key))
     return {"analysis_id": analysis_id, "agent": agent_key, "status": "retrying"}
 
 @app.get("/api/result/{analysis_id}")
@@ -858,7 +887,8 @@ async def download_report_pdf(analysis_id: str):
     company_name = (session.result and session.result.get("company_name", "")) or "report"
     stock_code = (session.result and session.result.get("stock_code", "")) or ""
     date_str = (session.result and session.result.get("analysis_date", "")) or ""
-    download_name = f"FINEX_{company_name}_{stock_code}_{date_str}.pdf"
+    profile_suffix = f"_{session.api_profile}" if session.api_profile else ""
+    download_name = f"FINEX_{company_name}_{stock_code}_{date_str}{profile_suffix}.pdf"
 
     return FileResponse(
         path=pdf_path,
@@ -876,7 +906,8 @@ async def get_analysis_history():
             "company_name": (session.result and session.result.get("company_name")) or session.company_name or session.query or "Unknown",
             "stock_code": (session.result and session.result.get("stock_code")) or "",
             "analysis_date": (session.result and session.result.get("analysis_date")) or session.start_time or "",
-            "status": session.status
+            "status": session.status,
+            "api_profile": session.api_profile,
         }
         history.append(entry)
 
@@ -922,82 +953,110 @@ async def delete_analysis_history(analysis_id: str):
         "message": "研报已成功删除"
     }
 
-@app.get("/api/config", dependencies=[Depends(require_local_config_access)])
-async def get_api_config():
-    """返回当前 API 配置(api_key 脱敏显示)。"""
+ProfileId = Literal["A", "B", "C", "D", "E"]
+PROFILE_IDS = ("A", "B", "C", "D", "E")
+CONFIG_FIELDS = ApiSettings._fields
+
+
+def active_profile() -> ProfileId:
+    profile = os.getenv(PROFILE_ENV_KEY, "A")
+    return profile if profile in PROFILE_IDS else "A"
+
+
+def profile_env_values(profile: ProfileId, settings: ApiSettings) -> dict[str, str]:
+    return {f"FINEX_API_{profile}_{field.upper()}": value
+            for field, value in zip(CONFIG_FIELDS, settings)}
+
+
+def read_profiles() -> dict[ProfileId, ApiSettings]:
+    active = active_profile()
+    stored = dotenv_values(env_path, interpolate=False)
     return {
-        "api_key": mask_api_key(os.getenv("OPENAI_COMPATIBLE_API_KEY", "")),
-        "base_url": os.getenv("OPENAI_COMPATIBLE_BASE_URL", ""),
-        "model": os.getenv("OPENAI_COMPATIBLE_MODEL", ""),
+        profile: current_api_settings() if profile == active else ApiSettings(*(
+            stored.get(f"FINEX_API_{profile}_{field.upper()}") or "" for field in CONFIG_FIELDS
+        ))
+        for profile in PROFILE_IDS
     }
 
-# /api/config 写入的环境变量名(只允许更新这三个)
-_CONFIG_ENV_KEYS = (
-    "OPENAI_COMPATIBLE_API_KEY",
-    "OPENAI_COMPATIBLE_BASE_URL",
-    "OPENAI_COMPATIBLE_MODEL",
-)
+
+def config_view(settings: ApiSettings) -> dict[str, str]:
+    return {**settings._asdict(), "api_key": mask_api_key(settings.api_key)}
+
+
+def profiles_view(profiles: dict[ProfileId, ApiSettings]) -> dict:
+    return {
+        "active_profile": active_profile(),
+        "profiles": {
+            profile: {"has_api_key": bool(settings.api_key), "base_url": settings.base_url, "model": settings.model}
+            for profile, settings in profiles.items()
+        },
+    }
+
+
+def merge_api_config(config: ApiConfigRequest, saved: ApiSettings) -> ApiSettings:
+    updates = config.model_dump(exclude_none=True)
+    if any(char in value for value in updates.values() for char in "\r\n\0"):
+        raise HTTPException(status_code=422, detail="API 配置必须是单行文本")
+    validate_config_destination(config, saved)
+    return saved._replace(**updates)
+
+
+def persist_profiles(profiles: dict[ProfileId, ApiSettings], active: ProfileId) -> None:
+    updates = {PROFILE_ENV_KEY: active, **dict(zip(API_ENV_KEYS, profiles[active]))}
+    for profile, settings in profiles.items():
+        updates.update(profile_env_values(profile, settings))
+    try:
+        update_env_file(env_path, updates)
+    except OSError:
+        raise HTTPException(status_code=500, detail="无法保存本地 API 配置") from None
+    os.environ.update({key: updates[key] for key in (*API_ENV_KEYS, PROFILE_ENV_KEY)})
+
+
+@app.get("/api/config", dependencies=[Depends(require_local_config_access)])
+async def get_api_config():
+    """Return the active configuration for existing clients."""
+    return config_view(current_api_settings())
+
 
 @app.post("/api/config", dependencies=[Depends(require_local_config_access)])
 async def update_api_config(config: ApiConfigRequest):
-    """更新 API 配置:同时写 os.environ(立即生效)和 .env(持久化)。
-
-    未传的字段(None)保留原值,只更新显式传入的字段。
-    """
-    validate_config_destination(config)
-    # 收集需要更新的项(非 None)
-    updates = {}
-    if config.api_key is not None:
-        updates["OPENAI_COMPATIBLE_API_KEY"] = config.api_key
-    if config.base_url is not None:
-        updates["OPENAI_COMPATIBLE_BASE_URL"] = config.base_url
-    if config.model is not None:
-        updates["OPENAI_COMPATIBLE_MODEL"] = config.model
-
-    if not updates:
+    if not config.model_dump(exclude_none=True):
         raise HTTPException(status_code=400, detail="未提供任何要更新的配置项")
+    active = active_profile()
+    profiles = read_profiles()
+    profiles[active] = merge_api_config(config, profiles[active])
+    persist_profiles(profiles, active)
+    return {"status": "ok", "message": "配置已更新", **config_view(profiles[active])}
 
-    # 1. 写 os.environ -- 立即生效(agents 在 call-time 用 os.getenv 读取)
-    for key, value in updates.items():
-        os.environ[key] = value
 
-    # 2. 写 .env 文件 -- 持久化(重启后 load_dotenv 能读到)
-    try:
-        update_env_file(env_path, updates)
-    except Exception as e:
-        # .env 写入失败不影响运行时生效,但要告知用户
-        return {
-            "status": "warning",
-            "message": f"运行时已生效,但 .env 持久化失败: {e}",
-            "api_key": mask_api_key(os.getenv("OPENAI_COMPATIBLE_API_KEY", "")),
-            "base_url": os.getenv("OPENAI_COMPATIBLE_BASE_URL", ""),
-            "model": os.getenv("OPENAI_COMPATIBLE_MODEL", ""),
-        }
+@app.get("/api/config/profiles", dependencies=[Depends(require_local_config_access)])
+async def get_api_profiles():
+    return profiles_view(read_profiles())
 
-    return {
-        "status": "ok",
-        "message": "配置已更新",
-        "api_key": mask_api_key(os.getenv("OPENAI_COMPATIBLE_API_KEY", "")),
-        "base_url": os.getenv("OPENAI_COMPATIBLE_BASE_URL", ""),
-        "model": os.getenv("OPENAI_COMPATIBLE_MODEL", ""),
-    }
+
+@app.put("/api/config/profiles/{profile}", dependencies=[Depends(require_local_config_access)])
+async def save_api_profile(profile: ProfileId, config: ApiConfigRequest, activate: bool = False):
+    active = profile if activate else active_profile()
+    profiles = read_profiles()
+    profiles[profile] = merge_api_config(config, profiles[profile])
+    if profile == active and not all(profiles[profile]):
+        raise HTTPException(status_code=422, detail="启用的配置需要完整的 API Key、Base URL 和 Model")
+    persist_profiles(profiles, active)
+    return profiles_view(profiles)
+
 
 @app.post("/api/config/test", dependencies=[Depends(require_local_config_access)])
 async def test_api_config_connectivity(config: Optional[ApiConfigRequest] = None):
-    """测试 API 配置的连通性。
+    return await test_api_settings(merge_api_config(config or ApiConfigRequest(), current_api_settings()))
 
-    优先用请求体里传入的表单值（前端测试按钮会把当前输入的
-    base_url/model 传过来，让反馈与用户正在填的值一致）；未传的字段
-    回退到 os.environ（上次已保存的配置）。
 
-    返回 {ok: bool, message|error: str}。
-    """
-    if config is not None:
-        validate_config_destination(config)
-    api_key = config.api_key if config and config.api_key else os.getenv("OPENAI_COMPATIBLE_API_KEY")
-    base_url = config.base_url if config and config.base_url else os.getenv("OPENAI_COMPATIBLE_BASE_URL")
-    model_name = config.model if config and config.model else os.getenv("OPENAI_COMPATIBLE_MODEL")
+@app.post("/api/config/profiles/{profile}/test", dependencies=[Depends(require_local_config_access)])
+async def test_api_profile(profile: ProfileId, config: Optional[ApiConfigRequest] = None):
+    return await test_api_settings(merge_api_config(config or ApiConfigRequest(), read_profiles()[profile]))
 
+
+async def test_api_settings(settings: ApiSettings):
+    api_key, base_url, model_name = settings
     if not all([api_key, base_url, model_name]):
         return {
             "ok": False,
@@ -1014,15 +1073,15 @@ async def test_api_config_connectivity(config: Optional[ApiConfigRequest] = None
         )
         # 发一个最小请求验证连通性
         resp = await llm.ainvoke([HumanMessage(content="ping")])
-        reply = getattr(resp, "content", "") or str(resp)
+        reply = str(getattr(resp, "content", "") or resp)
         return {
             "ok": True,
-            "message": f"连通正常,模型 {model_name} 已响应(回复: {reply[:50]})",
+            "message": f"连通正常,模型 {model_name} 已响应(回复: {reply.replace(api_key, '***')[:50]})",
         }
     except Exception as e:
         return {
             "ok": False,
-            "error": f"连通失败: {e}",
+            "error": f"连通失败: {str(e).replace(api_key, '***')}",
         }
 
 @app.get("/api/health")
