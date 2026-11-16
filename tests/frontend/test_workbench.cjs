@@ -4,6 +4,28 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('saved profile shows its masked key without submitting it again', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const start = html.indexOf('    // ============ 配置 API Key 弹窗逻辑 ============');
+  const end = html.indexOf('    function startAnalysis()', start);
+  const elements = {};
+  const element = (id) => elements[id] ||= { value: '', placeholder: '', classList: { toggle() {}, add() {}, remove() {} } };
+  const context = vm.createContext({
+    API_BASE: '/api',
+    document: { getElementById: element, querySelectorAll: () => [] },
+    setTimeout, clearTimeout,
+  });
+  vm.runInContext(html.slice(start, end), context);
+  vm.runInContext("configState = { active_profile: 'A', profiles: { A: { has_api_key: true, masked_api_key: 'sk-***1234', base_url: 'https://a.example/v1', model: 'a' }, B: { has_api_key: true, masked_api_key: 'sk-***5678' } } }; renderConfigProfile()", context);
+  assert.match(element('configApiKey').placeholder, /sk-\*\*\*1234/);
+  assert.equal(element('configApiKey').value, '');
+  assert.equal(vm.runInContext('configPayload().api_key', context), undefined);
+  vm.runInContext("selectedProfile = 'B'; renderConfigProfile()", context);
+  assert.match(element('configApiKey').placeholder, /sk-\*\*\*5678/);
+  vm.runInContext("selectedProfile = 'A'; renderConfigProfile()", context);
+  assert.match(element('configApiKey').placeholder, /sk-\*\*\*1234/);
+});
+
 test('all inline page scripts have valid JavaScript syntax', () => {
   const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)]
