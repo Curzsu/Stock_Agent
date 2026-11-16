@@ -164,6 +164,19 @@ class TestPostApiConfig(unittest.TestCase):
             self.assertEqual(self.client.put("/api/config/profiles/A?activate=true", json={}).status_code, 200)
             self.assertEqual(os.environ["OPENAI_COMPATIBLE_API_KEY"], legacy["OPENAI_COMPATIBLE_API_KEY"])
 
+    def test_profile_key_remains_identifiable_after_switching(self):
+        with patch.dict(os.environ, {}, clear=True):
+            a = {"api_key": "sk-first-key-1234", "base_url": "https://a.example/v1", "model": "a"}
+            b = {"api_key": "sk-second-key-5678", "base_url": "https://b.example/v1", "model": "b"}
+            self.assertEqual(self.client.put('/api/config/profiles/A', json=a).status_code, 200)
+            self.assertEqual(self.client.put('/api/config/profiles/B?activate=true', json=b).status_code, 200)
+            response = self.client.get('/api/config/profiles')
+            self.assertEqual(response.json()['profiles']['A']['masked_api_key'], 'sk-***1234')
+            self.assertEqual(response.json()['profiles']['B']['masked_api_key'], 'sk-***5678')
+            self.assertNotIn(a['api_key'], response.text)
+            self.assertEqual(self.client.put('/api/config/profiles/A?activate=true', json={'model': 'updated'}).status_code, 200)
+            self.assertEqual(os.environ['OPENAI_COMPATIBLE_API_KEY'], a['api_key'])
+
     def test_running_analysis_keeps_original_provider_when_profile_changes(self):
         from src.utils.api_settings import current_api_settings
 

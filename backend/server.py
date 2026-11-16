@@ -987,7 +987,7 @@ def profiles_view(profiles: dict[ProfileId, ApiSettings]) -> dict:
     return {
         "active_profile": active_profile(),
         "profiles": {
-            profile: {"has_api_key": bool(settings.api_key), "base_url": settings.base_url, "model": settings.model}
+            profile: {"has_api_key": bool(settings.api_key), "masked_api_key": mask_api_key(settings.api_key), "base_url": settings.base_url, "model": settings.model}
             for profile, settings in profiles.items()
         },
     }
