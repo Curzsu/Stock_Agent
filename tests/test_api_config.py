@@ -145,6 +145,7 @@ class TestPostApiConfig(unittest.TestCase):
 
             with patch.object(self.server, "ChatOpenAI") as llm:
                 llm.return_value.ainvoke = AsyncMock(return_value=MagicMock(content="ok"))
+                llm.return_value.bind_tools.return_value.ainvoke = AsyncMock(return_value=MagicMock(tool_calls=[{"name": "finex_connectivity_probe", "args": {"value": "ok"}, "id": "1"}]))
                 check = self.client.post("/api/config/profiles/B/test", json={"model": "b-preview"})
                 self.assertTrue(check.json()["ok"])
                 self.assertEqual(llm.call_args.kwargs["api_key"], alternate["api_key"])
@@ -293,12 +294,26 @@ class TestTestApiConfigConnectivity(unittest.TestCase):
 
         fake_llm = MagicMock()
         fake_llm.ainvoke = fake_ainvoke
+        fake_llm.bind_tools.return_value.ainvoke = AsyncMock(return_value=MagicMock(tool_calls=[{"name": "finex_connectivity_probe", "args": {"value": "ok"}, "id": "1"}]))
         with patch("backend.server.ChatOpenAI", return_value=fake_llm):
             resp = self.client.post("/api/config/test")
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertTrue(data["ok"])
         self.assertIn("message", data)
+        self.assertEqual(data["checks"]["chat"]["status"], "passed")
+        self.assertEqual(data["checks"]["tools"]["status"], "passed")
+
+    def test_tool_failure_preserves_chat_success(self):
+        os.environ.update(OPENAI_COMPATIBLE_API_KEY="sk-valid", OPENAI_COMPATIBLE_BASE_URL="https://valid.example/v1", OPENAI_COMPATIBLE_MODEL="model")
+        fake = MagicMock()
+        fake.ainvoke = AsyncMock(return_value=MagicMock(content="pong"))
+        fake.bind_tools.return_value.ainvoke = AsyncMock(return_value=MagicMock(tool_calls=[]))
+        with patch("backend.server.ChatOpenAI", return_value=fake):
+            data = self.client.post('/api/config/test').json()
+        self.assertFalse(data['ok'])
+        self.assertEqual(data['checks']['chat']['status'], 'passed')
+        self.assertEqual(data['checks']['tools']['status'], 'failed')
 
     def test_connectivity_missing_config(self):
         """配置缺失时,返回 ok=False 并提示缺失。"""
@@ -326,6 +341,8 @@ class TestTestApiConfigConnectivity(unittest.TestCase):
         self.assertFalse(data["ok"])
         self.assertIn("error", data)
         self.assertIn("401", data["error"])
+        self.assertEqual(data['checks']['chat']['status'], 'failed')
+        self.assertEqual(data['checks']['tools']['status'], 'skipped')
 
 
 class TestConfigAccess(unittest.TestCase):

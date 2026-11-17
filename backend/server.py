@@ -1057,10 +1057,12 @@ async def test_api_profile(profile: ProfileId, config: Optional[ApiConfigRequest
 
 async def test_api_settings(settings: ApiSettings):
     api_key, base_url, model_name = settings
+    checks = {"chat": {"status": "skipped", "message": "未执行"}, "tools": {"status": "skipped", "message": "未执行"}}
     if not all([api_key, base_url, model_name]):
         return {
             "ok": False,
             "error": "配置不完整:缺少 API Key / Base URL / Model 之一,请先保存完整配置",
+            "checks": checks,
         }
 
     try:
@@ -1069,20 +1071,31 @@ async def test_api_settings(settings: ApiSettings):
             api_key=api_key,
             base_url=base_url,
             temperature=0,
-            max_tokens=10,
+            max_tokens=128,
+            timeout=20,
+            max_retries=0,
         )
         # 发一个最小请求验证连通性
         resp = await llm.ainvoke([HumanMessage(content="ping")])
         reply = str(getattr(resp, "content", "") or resp)
-        return {
-            "ok": True,
-            "message": f"连通正常,模型 {model_name} 已响应(回复: {reply.replace(api_key, '***')[:50]})",
-        }
+        checks["chat"] = {"status": "passed", "message": f"对话接口可用（回复: {reply.replace(api_key, '***')[:50]}）"}
     except Exception as e:
-        return {
-            "ok": False,
-            "error": f"连通失败: {str(e).replace(api_key, '***')}",
-        }
+        error = f"对话接口失败: {str(e).replace(api_key, '***')}"
+        checks["chat"] = {"status": "failed", "message": error}
+        checks["tools"]["message"] = "对话接口未通过，未检查工具调用"
+        return {"ok": False, "error": error, "checks": checks}
+
+    try:
+        probe = {"type": "function", "function": {"name": "finex_connectivity_probe", "description": "验证工具调用", "parameters": {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"]}}}
+        response = await llm.bind_tools([probe]).ainvoke([HumanMessage(content="请调用 finex_connectivity_probe 工具，参数 value 设为 ok。")])
+        if not any(call.get("name") == "finex_connectivity_probe" and call.get("args", {}).get("value") == "ok" for call in response.tool_calls):
+            raise ValueError("模型未返回有效的工具调用")
+        checks["tools"] = {"status": "passed", "message": "工具调用可用"}
+        return {"ok": True, "message": "对话接口和工具调用均可用", "checks": checks}
+    except Exception as e:
+        error = f"工具调用未通过: {str(e).replace(api_key, '***')}"
+        checks["tools"] = {"status": "failed", "message": error}
+        return {"ok": False, "error": error, "checks": checks}
 
 @app.get("/api/health")
 async def health_check():
