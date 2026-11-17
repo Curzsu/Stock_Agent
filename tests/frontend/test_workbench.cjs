@@ -4,6 +4,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('connectivity results show chat and tool checks separately', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const start = html.indexOf('    // ============ 配置 API Key 弹窗逻辑 ============');
+  const end = html.indexOf('    function startAnalysis()', start);
+  const elements = {};
+  const element = id => elements[id] ||= { value: '', hidden: true, inert: false, classList: { toggle() {}, add() {}, remove() {} } };
+  const context = vm.createContext({ API_BASE: '/api', document: { getElementById: element, querySelectorAll: () => [] }, setTimeout: () => 1, clearTimeout,
+    fetch: async () => ({ ok: true, json: async () => ({ ok: false, error: '工具调用未通过', checks: { chat: { message: '对话接口可用' }, tools: { message: '工具调用未通过' } } }) }) });
+  vm.runInContext(html.slice(start, end), context);
+  vm.runInContext("configState = {active_profile: 'A', profiles: {A: {}}}", context);
+  await vm.runInContext('testConfigConnectivity()', context);
+  assert.equal(element('configTestResults').hidden, false);
+  assert.equal(element('configTestResults').textContent, '对话接口可用；工具调用未通过');
+});
+
 test('saved profile shows its masked key without submitting it again', () => {
   const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
   const start = html.indexOf('    // ============ 配置 API Key 弹窗逻辑 ============');

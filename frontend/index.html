@@ -2395,6 +2395,7 @@
         <button type="button" data-profile="E" aria-pressed="false">E</button>
       </div>
       <p class="config-profile-status" id="configProfileStatus" role="status"></p>
+      <p class="config-profile-status" id="configTestResults" role="status" hidden></p>
       <div class="config-field">
         <label class="config-field-label" for="configApiKey">API Key</label>
         <div class="config-input-wrapper">
@@ -3160,9 +3161,13 @@
     document.getElementById('configSaveBtn').addEventListener('click', saveConfig);
     document.getElementById('configTestBtn').addEventListener('click', testConfigConnectivity);
     document.getElementById('configActivateBtn').addEventListener('click', activateConfig);
+    document.getElementById('configModal').addEventListener('input', () => {
+      document.getElementById('configTestResults').hidden = true;
+    });
     document.getElementById('configProfiles').addEventListener('click', event => {
       const profile = event.target.dataset.profile;
       if (!profile || configBusy || !configState) return;
+      document.getElementById('configTestResults').hidden = true;
       configDrafts[selectedProfile] = configPayload();
       selectedProfile = profile;
       renderConfigProfile();
@@ -3582,6 +3587,7 @@
       if (configBusy) return;
       configState = null;
       configDrafts = {};
+      document.getElementById('configTestResults').hidden = true;
       configBusy = true;
       configModalOverlay.inert = false;
       configModalOverlay.classList.remove('hidden');
@@ -3652,9 +3658,13 @@
     }
 
     function testConfigConnectivity() {
+      document.getElementById('configTestResults').hidden = true;
       configDrafts[selectedProfile] = configPayload();
       return runConfigAction(async (url, payload) => {
         const result = await requestConfig(url + '/test', 'POST', payload);
+        const results = document.getElementById('configTestResults');
+        results.textContent = ['chat', 'tools'].map(key => result.checks?.[key]?.message || '未执行').join('；');
+        results.hidden = false;
         showConfigToast(result.ok ? result.message : result.error || '连通失败', !result.ok);
       });
     }
