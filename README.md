@@ -155,6 +155,8 @@ tests/          应用与前端回归测试
 docs/           开发、排障与设计说明
 ```
 
+下一版前端的模块划分、客户数据隔离与迁移验收见 [React 前端架构设计](docs/frontend-architecture.md)。
+
 ### 本地检查
 
 CI 使用 Python 3.10、Node.js 22 和 uv 0.8.12，在 PR 及 `v2.0` 推送后运行离线检查，无需真实模型密钥。
