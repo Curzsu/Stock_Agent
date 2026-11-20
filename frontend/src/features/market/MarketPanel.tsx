@@ -20,11 +20,15 @@ function LoadingChart({ children = '正在加载最近交易日行情…' }: { c
   return <p className={styles.placeholder} role="status">{children}</p>;
 }
 
-function PeriodPicker({ value, onChange }: { value: MarketPeriod; onChange: (value: MarketPeriod) => void }) {
+function PeriodPicker({ value, onChange, disabled }: {
+  value: MarketPeriod;
+  onChange: (value: MarketPeriod) => void;
+  disabled?: boolean;
+}) {
   return (
     <div className={styles.controls} role="group" aria-label="K 线周期">
       {periods.map(([period, label]) => (
-        <ToggleButton key={period} pressed={period === value} onClick={() => onChange(period)} data-chart-control>
+          <ToggleButton key={period} pressed={period === value} onClick={() => onChange(period)} disabled={disabled} data-chart-control>
           {label}
         </ToggleButton>
       ))}
@@ -35,6 +39,30 @@ function PeriodPicker({ value, onChange }: { value: MarketPeriod; onChange: (val
 function Change({ value }: { value?: number }) {
   if (value === undefined) return <span>最近交易日收盘</span>;
   return <span data-direction={value >= 0 ? 'up' : 'down'}>{value > 0 ? '+' : ''}{value.toFixed(2)}%</span>;
+}
+
+function IndexHeading({ latest, previous }: { latest?: Candle; previous?: Candle }) {
+  const change = latest && previous?.close ? (latest.close / previous.close - 1) * 100 : undefined;
+  return (
+    <header className={styles.indexHeader}>
+      <h2>上证指数行情</h2>
+      <div className={styles.indexTags}>
+        <span data-direction={change === undefined ? undefined : change >= 0 ? 'up' : 'down'}>
+          沪指 {change === undefined ? '—' : `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`}
+        </span>
+        {latest ? <time dateTime={latest.time}>最新交易日 {latest.time}</time> : <span>等待行情数据</span>}
+      </div>
+    </header>
+  );
+}
+
+function StockHeading({ tradeDate }: { tradeDate?: string }) {
+  return (
+    <header className={styles.stockHeader}>
+      <h2>行情概览</h2>
+      {tradeDate ? <time dateTime={tradeDate}>最新交易日 {tradeDate}</time> : <span>等待标的识别</span>}
+    </header>
+  );
 }
 
 type IndexHistory = { candles: Candle[]; days: number; exhausted: boolean };
@@ -90,28 +118,21 @@ function IndexMarket() {
     if (minimum > (history?.days ?? BASE_INDEX_DAYS)) void loadEarlier(minimum);
   }
 
-  if (query.error && !data) return <LoadingChart>{query.error.message}</LoadingChart>;
-  if (!candles || !data) return <LoadingChart />;
-  const latest = candles.at(-1)!;
-  const previous = candles.at(-2);
   return (
     <>
-      <div className={styles.toolbar}>
-        <div className={styles.quote}>
-          <strong>{latest.close.toFixed(2)}</strong>
-          <Change value={previous?.close ? (latest.close / previous.close - 1) * 100 : undefined} />
-        </div>
-        <time dateTime={latest.time}>最新交易日 {latest.time}</time>
-      </div>
-      <div className={styles.toolbar}>
-        <PeriodPicker value={period} onChange={changePeriod} />
+      <IndexHeading latest={candles?.at(-1)} previous={candles?.at(-2)} />
+      <div className={styles.indexControls}>
+        <PeriodPicker value={period} onChange={changePeriod} disabled={!data} />
         <div className={styles.controls} role="group" aria-label="均线显示设置">
+          <span>均线</span>
           {AVERAGE_PERIODS.map((window) => (
             <ToggleButton
               key={window}
               pressed={visibleAverages.includes(window)}
               onClick={() => setVisibleAverages((visible) => visible.includes(window)
                 ? visible.filter((item) => item !== window) : [...visible, window])}
+              data-average={window}
+              disabled={!data}
               data-chart-control
             >
               MA{window}
@@ -119,10 +140,14 @@ function IndexMarket() {
           ))}
         </div>
       </div>
-      <Suspense fallback={<LoadingChart />}>
-        <MarketChart variant="index" label="上证指数历史行情" data={data} period={period} visibleAverages={visibleAverages}
-          onReachHistory={() => void loadEarlier()} />
-      </Suspense>
+      <div className={styles.chartFrame}>
+        {data ? (
+          <Suspense fallback={<LoadingChart />}>
+            <MarketChart variant="index" label="上证指数历史行情" data={data} period={period} visibleAverages={visibleAverages}
+              onReachHistory={() => void loadEarlier()} />
+          </Suspense>
+        ) : <LoadingChart>{query.error?.message}</LoadingChart>}
+      </div>
       {olderStatus && <p className={styles.footnote} role="status">{olderStatus}</p>}
     </>
   );
@@ -136,6 +161,7 @@ function StockMarket({ code }: { code: string }) {
   const tradeDate = query.data?.tradeDate;
   return (
     <>
+      <StockHeading tradeDate={tradeDate} />
       <div className={styles.toolbar}>
         <div className={styles.quote}>
           <strong>{quote?.close.toFixed(2) ?? '—'}</strong>
@@ -143,7 +169,6 @@ function StockMarket({ code }: { code: string }) {
         </div>
         <PeriodPicker value={period} onChange={setPeriod} />
       </div>
-      {tradeDate && <time dateTime={tradeDate}>最新交易日 {tradeDate}</time>}
       {data ? (
         <Suspense fallback={<LoadingChart />}>
           <MarketChart variant="stock" label={`${code} 历史行情`} data={data} period={period} visibleAverages={stockAverages} />
@@ -183,11 +208,20 @@ export function MarketPanel(props: Props) {
   }, []);
   return (
     <section ref={section} className={styles.panel} data-variant={props.variant} aria-label={title}>
-      <h2>{title}</h2>
-      {visible && (isIndex ? <IndexMarket /> : props.code && <StockMarket key={props.code} code={props.code} />)}
-      {!visible && <div className={styles.placeholder} aria-hidden="true" />}
-      {visible && !isIndex && !props.code && <LoadingChart>识别股票后载入真实 K 线</LoadingChart>}
-      <p className={styles.footnote}>数据来源：BaoStock · 最近交易日收盘数据，非实时行情</p>
+      {isIndex ? (
+        <div className={styles.indexContent}>
+          {visible ? <IndexMarket /> : <><IndexHeading /><div className={styles.placeholder} aria-hidden="true" /></>}
+          <p className={styles.footnote}>数据来源：BaoStock · 最近交易日收盘数据，非实时行情</p>
+          <p className={styles.footnote}>点击图表，滚动鼠标滚轮可放大缩小 K 线</p>
+        </div>
+      ) : (
+        <>
+          {visible && props.code ? <StockMarket key={props.code} code={props.code} /> : (
+            <><StockHeading /><LoadingChart>识别股票后载入真实 K 线</LoadingChart></>
+          )}
+          <p className={styles.footnote}>数据来自 BaoStock，展示最近交易日收盘行情，并非实时价格。</p>
+        </>
+      )}
     </section>
   );
 }

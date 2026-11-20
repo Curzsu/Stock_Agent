@@ -63,15 +63,19 @@ export function WorkbenchPage({ id }: { id: string }) {
   const phase = derivePhase(snapshot.data);
   return (
     <div className={styles.page} data-phase={snapshot.data ? phase : undefined}>
-      <Link to="/">返回预览</Link>
       <header className={styles.masthead}>
-        <h1>研究工作台</h1>
-        {snapshot.data?.company_name && <p className={styles.company}>{snapshot.data.company_name} {snapshot.data.stock_code}</p>}
-        <p className={styles.meta}>任务编号 {id}</p>
-        {snapshot.data && <p className={styles.badge} role="status">{snapshot.data.current_task || phaseLabels[phase]}</p>}
-        {snapshot.isPending && <p className={styles.meta} role="status">正在读取任务状态…</p>}
-        {snapshot.error && <p className={styles.error} role="alert">{snapshot.error.message}</p>}
-        {snapshot.data?.error && <p className={styles.error} role="alert">{snapshot.data.error}</p>}
+        <Link to="/" className={styles.back} aria-label="返回首页"><span aria-hidden="true">←</span><span>返回</span></Link>
+        <div className={styles.heading}>
+          <span className={styles.eyebrow}>FINEX / 研究工作台</span>
+          <h1>{snapshot.data?.company_name ? <>正在研究 <span>{snapshot.data.company_name}</span></> : '研究工作台'}</h1>
+          <p className={styles.meta}>任务编号 {id}{snapshot.data?.stock_code && ` · ${snapshot.data.stock_code}`}</p>
+        </div>
+        <div className={styles.mastheadStatus}>
+          {snapshot.data && <p role="status">{snapshot.data.current_task || phaseLabels[phase]}</p>}
+          {snapshot.isPending && <p role="status">正在读取任务状态…</p>}
+          {snapshot.error && <p className={styles.error} role="alert">{snapshot.error.message}</p>}
+          {snapshot.data?.error && <p className={styles.error} role="alert">{snapshot.data.error}</p>}
+        </div>
       </header>
       {snapshot.data && <ResearchGrid snapshot={snapshot.data} />}
       <MarketPanel variant="stock" code={snapshot.data?.stock_code} />

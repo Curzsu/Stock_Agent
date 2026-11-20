@@ -16,7 +16,7 @@ function renderPath(path: string) {
 describe('React preview routes', () => {
   it('opens the existing FINEX workbench from the preview home', () => {
     const html = renderPath('/react-preview/');
-    expect(html).toContain('<h1>FINEX 预览</h1>');
+    expect(html).toContain('<h1><span>智能</span><span>金融分析</span></h1>');
     expect(html).toContain('<a href="http://127.0.0.1:8100/">打开 FINEX 工作台</a>');
   });
 
@@ -24,7 +24,7 @@ describe('React preview routes', () => {
     const html = renderPath('/react-preview/app/analysis/abc123');
     expect(html).toContain('<h1>研究工作台</h1>');
     expect(html).toContain('任务编号 abc123');
-    expect(html).toMatch(/<a href="\/react-preview\/"[^>]*>返回预览<\/a>/);
+    expect(html).toMatch(/<a [^>]*aria-label="返回首页"[^>]*href="\/react-preview\/"[^>]*>/);
   });
 });
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

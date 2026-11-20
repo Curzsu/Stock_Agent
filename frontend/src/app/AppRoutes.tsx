@@ -16,10 +16,17 @@ export function AppRoutes() {
       <Routes>
         <Route path="/" element={(
           <>
-            <header className={styles.hero}>
-              <h1>FINEX 预览</h1>
-              <a href={legacyHome}>打开 FINEX 工作台</a>
-            </header>
+            <section className={styles.hero}>
+              <header className={styles.heroHeader}>
+                <div className={styles.brand}><span>FX</span> FINEX</div>
+                <span className={styles.tagline}>金融分析智能体系统</span>
+              </header>
+              <div className={styles.heroContent}>
+                <h1><span>智能</span><span>金融分析</span></h1>
+                <p>获取多维度深度分析报告</p>
+                <a href={legacyHome}>打开 FINEX 工作台</a>
+              </div>
+            </section>
             <MarketPanel variant="index" />
           </>
         )} />

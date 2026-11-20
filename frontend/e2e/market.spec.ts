@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 function candles(count: number) {
@@ -97,7 +99,7 @@ test('index switches periods, toggles averages and pans or zooms only after char
 test('workbench reads the task snapshot and caches stock periods without starting analysis', async ({ page }) => {
   const requests = await mockMarket(page);
   await page.goto('/react-preview/app/analysis/fixture');
-  await expect(page.getByRole('heading', { name: '研究工作台' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '正在研究 测试标的' })).toBeVisible();
   await expect(page.getByText('1 / 5 已完成')).toBeVisible();
   await expect(page.getByText('阶段研究结果正在陆续返回')).toBeVisible();
   await expect(page.getByRole('heading', { name: '综合研判' })).toBeVisible();
@@ -128,3 +130,60 @@ test('index shows the upstream error instead of an empty chart', async ({ page }
   await expect(market.getByRole('status')).toHaveText('指数查询超时');
   await expect(market.locator('canvas')).toHaveCount(0);
 });
+
+async function computed(locator: Locator, properties: string[]) {
+  return locator.evaluate((element, properties) => {
+    const style = getComputedStyle(element);
+    return Object.fromEntries(properties.map((name) => [name, style.getPropertyValue(name)]));
+  }, properties);
+}
+
+for (const width of [1280, 390]) {
+  test(`keeps legacy market surfaces and research card geometry at ${width}px`, async ({ context, page }) => {
+    const legacy = await context.newPage();
+    await Promise.all([page, legacy].map(async (tab) => {
+      await tab.setViewportSize({ width, height: 900 });
+      await tab.emulateMedia({ reducedMotion: 'reduce' });
+    }));
+    const legacyHtml = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<link\b[^>]*href="https:[^"]+"[^>]*>/gi, '');
+    await legacy.route('**/legacy-visual-baseline', (route) => route.fulfill({ contentType: 'text/html', body: legacyHtml }));
+    await legacy.route('**/static/workbench.css', (route) => route.fulfill({
+      contentType: 'text/css',
+      body: readFileSync(resolve(__dirname, '../workbench.css'), 'utf8'),
+    }));
+    await legacy.route('**/static/assets/fonts/FINEXRound-Regular.woff', (route) => route.fulfill({
+      contentType: 'font/woff',
+      path: resolve(__dirname, '../assets/fonts/FINEXRound-Regular.woff'),
+    }));
+    await legacy.goto('/legacy-visual-baseline');
+    await mockMarket(page);
+    await page.goto('/react-preview/');
+    const index = page.getByRole('region', { name: '上证指数行情' });
+    await index.scrollIntoViewIfNeeded();
+    const chart = index.getByRole('img', { name: '上证指数历史行情' });
+    await expect(chart.locator('canvas').first()).toBeVisible();
+
+    const surface = ['background-color', 'background-image', 'border-top-width', 'border-top-left-radius', 'box-shadow'];
+    const controls = ['background-color', 'border-top-color', 'border-top-width', 'border-top-left-radius', 'font-size'];
+    expect(await computed(index, surface)).toEqual(await computed(legacy.locator('#marketSection'), surface));
+    expect(await computed(chart.locator('..'), surface)).toEqual(await computed(legacy.locator('.market-card'), surface));
+    expect(await computed(chart, ['height'])).toEqual(await computed(legacy.locator('#marketChart'), ['height']));
+    expect(await computed(index.getByRole('button', { name: '日线' }), controls))
+      .toEqual(await computed(legacy.locator('[data-market-period][data-period="day"]'), controls));
+
+    await legacy.locator('#analysisSection').evaluate((section) => section.classList.add('active'));
+    await page.goto('/react-preview/app/analysis/fixture');
+    const research = page.getByRole('region', { name: '研究协同台' });
+    await expect(research.getByRole('heading', { name: '技术面分析师' })).toBeVisible();
+    const card = ['border-top-width', 'border-top-left-radius', 'padding-top', 'padding-left'];
+    const oldGrid = legacy.locator('#workbenchRunningState');
+    const oldAgent = oldGrid.locator('[data-agent="technical"]');
+    await oldAgent.evaluate((agent) => agent.setAttribute('data-status', 'running'));
+    expect(await computed(research.locator('[data-agent="technical"]'), [...card, 'background-image', 'box-shadow']))
+      .toEqual(await computed(oldAgent, [...card, 'background-image', 'box-shadow']));
+    const stock = page.getByRole('region', { name: '行情概览' });
+    expect(await computed(stock, surface)).toEqual(await computed(oldGrid.locator('.market-overview'), surface));
+  });
+}

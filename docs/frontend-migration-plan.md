@@ -2,6 +2,12 @@
 
 本计划落实 [React 前端架构](frontend-architecture.md)，在 `codex/react-frontend-architecture` 上按阶段推进。每阶段交付一个能独立验证的结果。正式上线前，FastAPI 继续用 `/` 提供旧首页，React 在本机 `/react-preview/` 下逐段接通。客户版使用同源会话、SQLite 和私有报告目录。
 
+## 视觉验收
+
+以旧版 `frontend/index.html` 和 `frontend/workbench.css` 渲染出的页面为基准，已有页面和状态尽量按 1:1 迁移。每阶段用相同数据和状态对照至少 1280px 桌面和 390px 手机视口，核对布局、留白、字体、背景、边框、圆角、阴影及控件状态。首页动效在默认和减少动态效果两种设置下对照。新增的登录等页面沿用同一套视觉样式。
+
+阶段 3 对照首屏、搜索框、示例标签和研究进度。阶段 4 对照历史、报告目录、正文和下载状态。阶段 8 在切换正式入口前做整页对照，记录因产品要求产生的可见差异。
+
 ## 进度与接续
 
 | 阶段 | 交付 | 状态 |
@@ -83,6 +89,7 @@ npm.cmd run test:browser --prefix frontend
 
 ## 完成记录
 
+- 2026-11-21 · 阶段 2 视觉复核。已按旧版恢复首页行情区和图表卡、研究卡片及个股行情区的背景、边框、圆角、阴影。Chrome 在 1280px 和 390px 的同状态对照通过，后续页面按本文的视觉验收要求继续迁移。
 - 2026-11-21 · 阶段 2。锁文件安装和 `npm run check --prefix frontend` 通过，覆盖 9 项 Vitest 测试。旧 Node 回归 73 项通过。离线 Chrome 3 项通过，覆盖指数图表交互、工作台状态与个股周期缓存，以及指数和个股的上游错误提示。用本机 FastAPI 验证构建后的字体和独立图表脚本均可加载。阶段 3 从 `frontend/src/features/analysis/statusQuery.ts` 和 `frontend/src/shared/api/getJson.ts` 开始，接入提交、进度订阅和局部结果。
 - 2026-11-21 · 阶段 1。`npm ci --prefix frontend` 和 `npm run check --prefix frontend` 通过，包含 2 项 Vitest 路由测试。旧 Node 回归 73 项通过。`python scripts/run_ci_tests.py app` 通过 25 个测试文件，覆盖新增的 5 项 FastAPI 预览测试。用本机 Uvicorn 和 Chrome 验证生产预览、详情直达、旧首页及缺失资源的 `404`，并验证 Vite 开发预览和 `/api` 代理。工作台目前显示 URL 中的任务编号。阶段 2 从 `frontend/workbench.js`、`frontend/workbench.css` 和 `docs/workbench-ui-reference.md` 开始，按既有行为迁移视觉、阶段推导与行情。
 - 2026-11-21 · 确认目标分支与旧前端基线。Windows 若将 `node` 解析成系统目录下不可执行的条目，使用 `node.exe` 或其绝对路径。后端测试使用仓库的 `unittest` 流程。
