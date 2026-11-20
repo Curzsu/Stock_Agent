@@ -1,0 +1,63 @@
+.page {
+  max-width: 84rem;
+  margin: auto;
+  padding: 2rem 0 3.5rem;
+}
+
+.masthead {
+  padding: clamp(1.5rem, 4vw, 3.25rem) 0;
+}
+
+.masthead h1, .company, .meta, .error { margin: 0 0 .5rem; }
+.masthead h1 { font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 500; letter-spacing: -.02em; }
+.company { font-size: clamp(1.15rem, 3vw, 1.75rem); }
+.meta, .error { font-size: .9rem; color: var(--wb-muted); }
+.error { color: var(--wb-red); }
+
+.research {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(17rem, .9fr);
+  gap: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.researchHeader, .cardMeta { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.researchHeader { grid-column: 1 / -1; color: var(--wb-muted); font-size: .9rem; }
+.researchHeader h2 { margin: 0; color: var(--wb-ink); font-size: 1.125rem; font-weight: 500; }
+.cards { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.card {
+  --agent-ink: var(--wb-gold);
+  min-width: 0;
+  padding: clamp(1rem, 2.4vw, 1.5rem);
+  border: 1px solid var(--wb-line);
+  border-radius: 16px;
+  background: var(--wb-paper-raised);
+}
+.card[data-agent="technical"] { --agent-ink: var(--wb-blue); }
+.card[data-agent="value"] { --agent-ink: var(--wb-green); }
+.card[data-agent="news"] { --agent-ink: var(--wb-red); }
+.card[data-status="running"] { border-color: var(--agent-ink); }
+.card[data-agent="summary"] h3 { font-size: 1.5rem; }
+.cardMeta { color: var(--agent-ink); font-size: .85rem; }
+.badge {
+  display: inline-block;
+  margin: 0;
+  padding: .3rem .65rem;
+  border-radius: 999px;
+  background: rgba(128,97,39,.09);
+  color: var(--wb-gold);
+  font-size: .75rem;
+}
+.card[data-status="completed"] .badge { color: var(--wb-green); background: rgba(73,111,92,.1); }
+.card[data-status="failed"] .badge { color: var(--wb-red); background: rgba(155,77,67,.09); }
+.card h3 { margin: .8rem 0 .3rem; font-size: 1.125rem; font-weight: 500; }
+.description { margin: 0; color: var(--wb-muted); font-size: .85rem; }
+.summary { margin: .75rem 0 0; color: var(--wb-muted); line-height: 1.7; overflow-wrap: anywhere; }
+
+@media (max-width: 850px) {
+  .research { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 540px) {
+  .cards { grid-template-columns: minmax(0, 1fr); }
+}

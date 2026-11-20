@@ -5,9 +5,11 @@ import { AppRoutes } from './AppRoutes';
 
 function renderPath(path: string) {
   return renderToStaticMarkup(
-    <MemoryRouter basename="/react-preview/" initialEntries={[path]}>
-      <AppRoutes />
-    </MemoryRouter>,
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter basename="/react-preview/" initialEntries={[path]}>
+        <AppRoutes />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -25,3 +27,4 @@ describe('React preview routes', () => {
     expect(html).toMatch(/<a href="\/react-preview\/"[^>]*>返回预览<\/a>/);
   });
 });
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

@@ -7,7 +7,7 @@
 | 阶段 | 交付 | 状态 |
 | --- | --- | --- |
 | 1 | React 工程、独立入口和详情刷新 | 已完成 |
-| 2 | 视觉基础、研究阶段规则与行情 | 待实现 |
+| 2 | 视觉基础、研究阶段规则与行情 | 已完成 |
 | 3 | 发起研究、URL 恢复、进度轮询与局部结果 | 待实现 |
 | 4 | 失败重试、报告、PDF、历史与离线主流程 | 待实现 |
 | 5 | 后端响应契约、个人会话与任务归属 | 待实现 |
@@ -34,9 +34,16 @@ npm.cmd run check --prefix frontend
 
 ## 阶段 2 · 工作台基础与行情
 
-- [ ] 以 `docs/workbench-ui-reference.md` 对齐旧界面。将色板、响应式布局与字体放进 `frontend/src/shared/styles/`，跨页面组件放进 `shared/ui/`。用原工作台用例锁定阶段推导和维度顺序，将纯规则移入 `features/analysis/`。
-- [ ] 在 `features/market/` 为 `/api/market-kline` 和 `/api/stock-market` 分别建立适配。行情按标的、周期和天数缓存。延迟加载已验证的 Lightweight Charts 4.1.3。迁移指数和个股 K 线、成交量、滚动、缩放、切周期及空数据提示。
-- [ ] 在 Vitest 验证状态规则和转换场景，在离线浏览器夹具中验证图表交互及 `ok: false` 的实际提示。此阶段的个股图可通过固定任务测试数据打开，不发起外部模型任务。
+- [x] 以 `docs/workbench-ui-reference.md` 对齐旧界面。将色板与字体放进 `frontend/src/shared/styles/`，响应式布局随页面组件维护，跨页面控件放进 `shared/ui/`。用旧工作台规则核对阶段推导和维度顺序。
+- [x] 在 `features/market/` 为 `/api/market-kline` 和 `/api/stock-market` 分别建立适配。个股按标的、周期和天数缓存，指数在日线缓存基础上生成周线和月线。延迟加载 Lightweight Charts 4.1.3，支持两类 K 线、成交量、滚动、缩放、切周期及空数据提示。
+- [x] 在 Vitest 验证状态规则和转换场景，在离线 Chrome 夹具中验证图表交互及 `ok: false` 的实际提示。个股图通过任务的状态快照取得股票代码。持续轮询从阶段 3 接入。
+
+从项目根目录运行离线浏览器回归。已安装 Chromium 时，可用 `FINEX_CHROMIUM_PATH` 指定其可执行文件。
+
+```powershell
+npm.cmd exec --prefix frontend -- playwright install chromium
+npm.cmd run test:browser --prefix frontend
+```
 
 ## 阶段 3 · 创建、进度与局部结果
 
@@ -76,5 +83,6 @@ npm.cmd run check --prefix frontend
 
 ## 完成记录
 
+- 2026-11-21 · 阶段 2。锁文件安装和 `npm run check --prefix frontend` 通过，覆盖 9 项 Vitest 测试。旧 Node 回归 73 项通过。离线 Chrome 3 项通过，覆盖指数图表交互、工作台状态与个股周期缓存，以及指数和个股的上游错误提示。用本机 FastAPI 验证构建后的字体和独立图表脚本均可加载。阶段 3 从 `frontend/src/features/analysis/statusQuery.ts` 和 `frontend/src/shared/api/getJson.ts` 开始，接入提交、进度订阅和局部结果。
 - 2026-11-21 · 阶段 1。`npm ci --prefix frontend` 和 `npm run check --prefix frontend` 通过，包含 2 项 Vitest 路由测试。旧 Node 回归 73 项通过。`python scripts/run_ci_tests.py app` 通过 25 个测试文件，覆盖新增的 5 项 FastAPI 预览测试。用本机 Uvicorn 和 Chrome 验证生产预览、详情直达、旧首页及缺失资源的 `404`，并验证 Vite 开发预览和 `/api` 代理。工作台目前显示 URL 中的任务编号。阶段 2 从 `frontend/workbench.js`、`frontend/workbench.css` 和 `docs/workbench-ui-reference.md` 开始，按既有行为迁移视觉、阶段推导与行情。
 - 2026-11-21 · 确认目标分支与旧前端基线。Windows 若将 `node` 解析成系统目录下不可执行的条目，使用 `node.exe` 或其绝对路径。后端测试使用仓库的 `unittest` 流程。

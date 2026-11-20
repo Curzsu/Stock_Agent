@@ -1,17 +1,13 @@
 import { Link, Route, Routes, useParams } from 'react-router';
+import { WorkbenchPage } from '../features/analysis/WorkbenchPage';
+import { MarketPanel } from '../features/market/MarketPanel';
 import styles from './Preview.module.css';
 
 const legacyHome = import.meta.env.DEV ? 'http://127.0.0.1:8100/' : '/';
 
 function WorkbenchPreview() {
   const { id } = useParams<'id'>();
-  return (
-    <>
-      <h1>研究工作台</h1>
-      <p>任务编号 {id}</p>
-      <Link to="/">返回预览</Link>
-    </>
-  );
+  return id ? <WorkbenchPage id={id} /> : null;
 }
 
 export function AppRoutes() {
@@ -20,8 +16,11 @@ export function AppRoutes() {
       <Routes>
         <Route path="/" element={(
           <>
-            <h1>FINEX 预览</h1>
-            <a href={legacyHome}>打开 FINEX 工作台</a>
+            <header className={styles.hero}>
+              <h1>FINEX 预览</h1>
+              <a href={legacyHome}>打开 FINEX 工作台</a>
+            </header>
+            <MarketPanel variant="index" />
           </>
         )} />
         <Route path="/app/analysis/:id" element={<WorkbenchPreview />} />
