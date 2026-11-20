@@ -9,6 +9,7 @@ export default defineConfig({
   outputDir: '../.runtime/react-browser-results',
   use: {
     baseURL,
+    contextOptions: { reducedMotion: 'reduce' },
     browserName: 'chromium',
     launchOptions: { executablePath },
   },

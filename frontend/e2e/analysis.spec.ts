@@ -1,0 +1,152 @@
+import { expect, test, type Page, type Route } from '@playwright/test';
+
+async function mockApi(page: Page, handle: (route: Route, path: string) => Promise<void>) {
+  await page.context().route('**/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.startsWith('/api/market-') || path === '/api/stock-market') {
+      await route.fulfill({ json: { ok: false, error: '离线测试' } });
+    } else {
+      await handle(route, path);
+    }
+  });
+}
+
+test('submits the old search form and resumes partial progress at the task URL', async ({ page }) => {
+  let creates = 0;
+  let partialReads = 0;
+  await page.addInitScript(() => {
+    const messages: string[] = [];
+    Object.defineProperty(window, 'finexTestNotifications', { value: messages });
+    Object.defineProperty(window, 'Notification', { value: class {
+      static permission = 'granted';
+      constructor(title: string) { messages.push(title); }
+    } });
+  });
+  let reads = 0;
+  await mockApi(page, async (route, path) => {
+    if (path === '/api/analyze') {
+      creates += 1;
+      expect(route.request().method()).toBe('POST');
+      expect(route.request().postDataJSON()).toEqual({ query: '600519' });
+      await route.fulfill({ json: { analysis_id: 'research-1' } });
+    } else if (path === '/api/status/research-1') {
+      reads += 1;
+      const completed = reads >= 3;
+      await route.fulfill({ json: {
+        company_name: '贵州茅台',
+        status: completed ? 'completed' : reads === 2 ? 'degraded' : 'running',
+        end_time: completed ? '2026-09-25T10:00:00' : undefined,
+        progress: { fundamental: 'completed', summary: completed ? 'completed' : 'running' },
+      } });
+    } else if (path === '/api/analysis/research-1/partial') {
+      partialReads += 1;
+      await route.fulfill({ json: { results: { fundamental_analysis: '财务数据已核对。<script>bad</script>' } } });
+    } else {
+      await route.fulfill({ status: 404, json: {} });
+    }
+  });
+
+  await page.goto('/react-preview/');
+  await page.getByRole('button', { name: '600519', exact: true }).click();
+  await expect(page.getByRole('textbox')).toHaveValue('600519');
+  expect(creates).toBe(0);
+  await page.getByRole('textbox').press('Enter');
+  await expect(page).toHaveURL(/\/app\/analysis\/research-1$/);
+  await expect(page.getByRole('heading', { name: '正在研究 贵州茅台' })).toBeVisible();
+  await page.getByText('查看阶段结果').click();
+  await expect(page.getByText('财务数据已核对。<script>bad</script>')).toBeVisible();
+  await expect(page.getByText('研究报告已完成')).toBeVisible({ timeout: 8000 });
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, 'finexTestNotifications'))).toEqual(['股票分析完成']);
+  expect(partialReads).toBe(1);
+
+  await page.reload();
+  await page.getByText('查看阶段结果').click();
+  await expect(page.getByText('财务数据已核对。<script>bad</script>')).toBeVisible();
+  expect(creates).toBe(1);
+  expect(partialReads).toBe(2);
+  expect(await page.evaluate(() => Reflect.get(window, 'finexTestNotifications'))).toEqual([]);
+});
+
+test('shows a submission failure and waits for the user before sending another request', async ({ page }) => {
+  let creates = 0;
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'Notification', { value: { permission: 'denied' } });
+  });
+  await mockApi(page, async (route) => {
+    creates += 1;
+    await route.fulfill({ status: 422, json: { detail: [{ msg: '测试：当前无法提交研究' }] } });
+  });
+  await page.goto('/react-preview/');
+  await page.getByRole('textbox').fill('a');
+  await page.getByRole('button', { name: '开始分析' }).click();
+  await expect(page.getByRole('alert')).toHaveText('请输入至少2个字符的公司名称或股票代码');
+  expect(creates).toBe(0);
+  await page.getByRole('textbox').fill('贵州茅台');
+  await page.getByRole('button', { name: '开始分析' }).click();
+  await expect(page.getByRole('alert')).toHaveText('测试：当前无法提交研究');
+  await expect(page.getByRole('button', { name: '开始分析' })).toBeEnabled();
+  expect(creates).toBe(1);
+});
+
+test('falls back without Worker and refreshes immediately when the tab becomes visible', async ({ page }) => {
+  await page.addInitScript(() => { Object.defineProperty(window, 'Worker', { value: undefined }); });
+  let reads = 0;
+  await mockApi(page, async (route) => {
+    reads += 1;
+    await route.fulfill({ json: { status: 'running', current_task: `第 ${reads} 次状态读取` } });
+  });
+  await page.goto('/react-preview/app/analysis/fallback');
+  await expect(page.getByText('第 1 次状态读取')).toBeVisible();
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.getByText('第 2 次状态读取')).toBeVisible({ timeout: 1500 });
+});
+
+test('discards late status from a previous task and stops waiting at 30 minutes', async ({ page }) => {
+  await page.addInitScript(() => { Object.defineProperty(window, 'Worker', { value: undefined }); });
+  await page.clock.install();
+  let finishOld!: () => void;
+  const old = new Promise<void>((resolve) => { finishOld = resolve; });
+  let oldStarted = false;
+  await mockApi(page, async (route, path) => {
+    if (path === '/api/status/old') {
+      oldStarted = true;
+      await old;
+      await route.fulfill({ json: { status: 'completed', company_name: '迟到的旧任务' } }).catch(() => undefined);
+    } else {
+      await route.fulfill({ json: { status: 'running', company_name: '当前任务' } });
+    }
+  });
+  await page.goto('/react-preview/app/analysis/old');
+  await expect.poll(() => oldStarted).toBe(true);
+  await page.evaluate(() => {
+    history.pushState({ idx: history.state.idx + 1 }, '', '/react-preview/app/analysis/current');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.getByRole('heading', { name: '正在研究 当前任务' })).toBeVisible();
+  finishOld();
+  await page.clock.fastForward(30 * 60 * 1000);
+  await expect(page.getByRole('alert')).toHaveText('分析超时，请稍后重试。');
+  await expect(page.getByText('迟到的旧任务')).toHaveCount(0);
+});
+
+test('keeps the original inertial wheel behavior and supports reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await mockApi(page, (route) => route.fulfill({ status: 404, json: {} }));
+  await page.goto('/react-preview/');
+  await expect(page.locator('html')).toHaveClass(/lenis-stopped/);
+  await expect(page.locator('html')).not.toHaveClass(/lenis-stopped/);
+  await page.mouse.move(24, 250);
+  await page.mouse.wheel(0, 400);
+  const positions = await page.evaluate(async () => {
+    const scrolls = [];
+    for (let frame = 0; frame < 10; frame += 1) {
+      await new Promise(requestAnimationFrame);
+      scrolls.push(window.scrollY);
+    }
+    return scrolls;
+  });
+  expect(positions.at(-1)).toBeGreaterThan(positions[0]);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(page.locator('html')).not.toHaveClass(/\blenis\b/);
+  await expect(page.getByRole('textbox')).toBeVisible();
+});

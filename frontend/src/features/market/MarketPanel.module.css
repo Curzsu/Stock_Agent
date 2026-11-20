@@ -61,6 +61,12 @@
   backdrop-filter: blur(16px);
 }
 .panel[data-variant="index"] :is(.chart, .placeholder) { height: 400px; }
+@media (prefers-reduced-motion: no-preference) {
+  .indexHeader[data-arrival="waiting"], .chartFrame[data-arrival="waiting"] { opacity: 0; transform: translateY(40px); }
+  .indexHeader[data-arrival="shown"], .chartFrame[data-arrival="shown"] {
+    transition: opacity .9s cubic-bezier(.22,1,.36,1), transform .9s cubic-bezier(.22,1,.36,1);
+  }
+}
 
 .stockHeader, .toolbar, .quote { display: flex; align-items: center; flex-wrap: wrap; }
 .stockHeader { justify-content: space-between; gap: 12px; color: var(--wb-muted); font-size: 11px; }

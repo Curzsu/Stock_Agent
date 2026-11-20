@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { ToggleButton } from '../../shared/ui/ToggleButton';
+import { useScrollReveal } from '../../shared/ui/useScrollReveal';
 import { aggregateIndex, AVERAGE_PERIODS, indexSeries, stockSeries, type AveragePeriod, type Candle, type MarketPeriod } from './marketData';
 import { indexMarketQuery, stockMarketQuery } from './marketQueries';
 import styles from './MarketPanel.module.css';
@@ -42,9 +43,10 @@ function Change({ value }: { value?: number }) {
 }
 
 function IndexHeading({ latest, previous }: { latest?: Candle; previous?: Candle }) {
+  const entrance = useScrollReveal<HTMLElement>();
   const change = latest && previous?.close ? (latest.close / previous.close - 1) * 100 : undefined;
   return (
-    <header className={styles.indexHeader}>
+    <header ref={entrance} className={styles.indexHeader}>
       <h2>上证指数行情</h2>
       <div className={styles.indexTags}>
         <span data-direction={change === undefined ? undefined : change >= 0 ? 'up' : 'down'}>
@@ -68,6 +70,7 @@ function StockHeading({ tradeDate }: { tradeDate?: string }) {
 type IndexHistory = { candles: Candle[]; days: number; exhausted: boolean };
 
 function IndexMarket() {
+  const chartEntrance = useScrollReveal<HTMLDivElement>();
   const client = useQueryClient();
   const query = useQuery(indexMarketQuery(BASE_INDEX_DAYS));
   const [period, setPeriod] = useState<MarketPeriod>('d');
@@ -140,7 +143,7 @@ function IndexMarket() {
           ))}
         </div>
       </div>
-      <div className={styles.chartFrame}>
+      <div ref={chartEntrance} className={styles.chartFrame}>
         {data ? (
           <Suspense fallback={<LoadingChart />}>
             <MarketChart variant="index" label="上证指数历史行情" data={data} period={period} visibleAverages={visibleAverages}

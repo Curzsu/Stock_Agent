@@ -6,6 +6,7 @@ export type AgentDetail = {
   summary?: string;
   error?: string | null;
   execution_time_ms?: number | null;
+  result_available?: boolean;
 };
 export type AnalysisSnapshot = {
   status?: 'pending' | 'running' | 'completed' | 'degraded' | 'error';
@@ -14,6 +15,8 @@ export type AnalysisSnapshot = {
   current_task?: string | null;
   company_name?: string | null;
   stock_code?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
   error?: string | null;
 };
 
@@ -49,4 +52,8 @@ export function agentDetails(snapshot: AnalysisSnapshot, agent: Agent) {
   const detail = snapshot.agent_details?.[agent];
   const status = detail?.status;
   return { ...detail, status: status && status !== 'waiting' ? status : snapshot.progress?.[agent] ?? 'waiting' };
+}
+
+export function isTerminalStatus(snapshot: AnalysisSnapshot) {
+  return ['completed', 'degraded', 'error'].includes(derivePhase(snapshot));
 }

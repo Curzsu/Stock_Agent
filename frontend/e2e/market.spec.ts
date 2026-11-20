@@ -29,6 +29,8 @@ async function mockMarket(page: Page) {
         progress: { fundamental: 'completed', technical: 'running', value: 'failed' },
         agent_details: { fundamental: { status: 'completed', summary: '已核对财务数据' } },
       } });
+    } else if (url.pathname === '/api/analysis/fixture/partial') {
+      await route.fulfill({ json: { results: { fundamental_analysis: '已完成财务质量核对' } } });
     } else if (url.pathname === '/api/stock-market') {
       const frequency = url.searchParams.get('frequency');
       if (frequency === 'm') {
@@ -167,6 +169,10 @@ for (const width of [1280, 390]) {
 
     const surface = ['background-color', 'background-image', 'border-top-width', 'border-top-left-radius', 'box-shadow'];
     const controls = ['background-color', 'border-top-color', 'border-top-width', 'border-top-left-radius', 'font-size'];
+    const search = page.getByRole('textbox', { name: '股票代码或公司名称' });
+    expect(await computed(search.locator('..'), surface)).toEqual(await computed(legacy.locator('.search-wrapper'), surface));
+    expect(await computed(page.getByRole('button', { name: '开始分析' }), controls))
+      .toEqual(await computed(legacy.locator('#analyzeBtn'), controls));
     expect(await computed(index, surface)).toEqual(await computed(legacy.locator('#marketSection'), surface));
     expect(await computed(chart.locator('..'), surface)).toEqual(await computed(legacy.locator('.market-card'), surface));
     expect(await computed(chart, ['height'])).toEqual(await computed(legacy.locator('#marketChart'), ['height']));

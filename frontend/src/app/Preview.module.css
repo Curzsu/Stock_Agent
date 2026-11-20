@@ -33,9 +33,44 @@
 .heroContent { display: grid; flex: 1; align-content: center; justify-items: center; padding: 3rem 0 4rem; text-align: center; }
 .heroContent h1 { margin: 0 0 1.5rem; font: 500 clamp(3.5rem, 8vw, 6.5rem)/1.25 var(--wb-sans); letter-spacing: -.03em; }
 .heroContent h1 span { display: block; }
-.heroContent p { margin: 0 0 1.5rem; color: #525252; font-size: 17px; }
-.heroContent a { padding: .75rem 1.5rem; border-radius: 8px; color: var(--wb-ink); background: rgba(255,255,255,.65); }
+.heroContent > p { margin: 0; color: #525252; font-size: 17px; }
+.heroHeader a { margin-inline-start: auto; color: var(--wb-ink); font-size: .875rem; }
+
+.opening {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0a0a0a;
+  text-align: center;
+  animation: openingFade .6s ease 2.5s both;
+  pointer-events: none;
+}
+.openingLogo { overflow: hidden; margin-bottom: 1rem; color: #fafafa; font-size: clamp(4rem, 15vw, 10rem); font-weight: 700; letter-spacing: .15em; }
+.openingLogo span { display: inline-block; animation: openingLetter .8s cubic-bezier(.16,1,.3,1) both; }
+.openingLogo span:nth-child(1) { animation-delay: .1s; }
+.openingLogo span:nth-child(2) { animation-delay: .2s; }
+.openingLogo span:nth-child(3) { animation-delay: .3s; }
+.openingLogo span:nth-child(4) { animation-delay: .4s; }
+.openingLogo span:nth-child(5) { animation-delay: .5s; }
+.openingLine { width: 180px; height: 2px; margin: 0 auto; background: linear-gradient(90deg, transparent, var(--gold), transparent); animation: openingLine 1s cubic-bezier(.16,1,.3,1) .6s both; }
+.opening p { margin: 1.5rem 0 0; color: #737373; font-size: 1.125rem; letter-spacing: .25em; animation: rise .8s cubic-bezier(.16,1,.3,1) .8s both; }
+.openingDots { display: flex; justify-content: center; gap: .5rem; margin-top: 3rem; animation: rise .5s ease 1s both; }
+.openingDots span { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px rgba(201,162,39,.15); }
+.hero[data-intro] .heroContent h1 { animation: rise .8s cubic-bezier(.22,1,.36,1) 2.6s both; }
+.hero[data-intro] .heroContent > p { animation: rise .7s cubic-bezier(.22,1,.36,1) 2.9s both; }
+.hero[data-intro] .heroContent form { animation: rise .7s cubic-bezier(.22,1,.36,1) 3s both; }
+@keyframes rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes openingFade { to { opacity: 0; visibility: hidden; } }
+@keyframes openingLetter { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: none; } }
+@keyframes openingLine { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 
 @media (max-width: 430px) {
   .tagline { padding-left: .75rem; font-size: .8rem; }
+  .heroHeader { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .opening { display: none; }
+  .hero[data-intro] .heroContent :is(h1, p, form) { animation: none; }
 }

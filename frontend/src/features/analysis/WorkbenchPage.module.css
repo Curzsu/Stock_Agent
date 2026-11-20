@@ -35,9 +35,12 @@
 .masthead h1 { margin: 0; font: 500 clamp(24px, 2.4vw, 31px)/1.5 var(--wb-sans); letter-spacing: -.02em; overflow-wrap: anywhere; }
 .masthead h1 span { color: var(--wb-gold); }
 .meta { margin: 5px 0 0; color: var(--wb-muted); font: 400 12px/1.7 var(--wb-sans); }
-.mastheadStatus { max-width: 290px; color: var(--wb-gold); font: 400 11px/1.5 var(--wb-sans); }
+.mastheadStatus { display: grid; justify-items: end; gap: 8px; max-width: 290px; color: var(--wb-gold); font: 400 11px/1.5 var(--wb-sans); }
 .mastheadStatus p { margin: 0; }
 .mastheadStatus .error { color: var(--wb-red); }
+.timer { color: var(--wb-ink); font: 400 24px/1.2 var(--wb-sans); font-variant-numeric: tabular-nums; }
+.phase { display: inline-flex; align-items: center; gap: 7px; }
+.phase::before { flex: none; width: 5px; height: 5px; border-radius: 50%; background: currentColor; content: ""; }
 
 .research {
   display: grid;
@@ -88,6 +91,11 @@
 .card h3 { margin: 0; font: 500 17px/1.6 var(--wb-sans); }
 .description { margin: 4px 0 0; color: var(--wb-muted); font: 400 12px/1.7 var(--wb-sans); }
 .summary { max-height: 5.7em; margin: 14px 0 0; overflow: auto; overflow-wrap: anywhere; color: #5e5548; font: 400 13px/1.85 var(--wb-sans); }
+.partial { margin-top: 12px; color: var(--wb-gold); font: 400 12px/1.7 var(--wb-sans); }
+.partial summary { cursor: pointer; }
+.partial div { max-height: 16rem; overflow: auto; overscroll-behavior: contain; color: var(--wb-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.partialError { color: var(--wb-red); font-size: 13px; }
+.partialError button { padding: 4px 8px; border: 0; border-radius: 7px; background: var(--wb-paper-raised); color: inherit; font: inherit; cursor: pointer; }
 .card[data-agent="summary"] { min-height: 0; padding: 24px; }
 .card[data-agent="summary"] .cardMeta { margin-bottom: 23px; }
 .card[data-agent="summary"] h3 { font-size: 24px; letter-spacing: -.02em; }
@@ -106,7 +114,8 @@
 @media (max-width: 720px) {
   .page { --wb-gutter: 14px; padding-top: 18px; }
   .masthead { grid-template-columns: auto minmax(0, 1fr); gap: 12px 16px; padding-bottom: 18px; }
-  .mastheadStatus { grid-column: 2; }
+  .mastheadStatus { grid-column: 2; display: flex; align-items: center; flex-wrap: wrap; }
+  .timer { font-size: 20px; }
   .cards { grid-template-columns: minmax(0, 1fr); gap: 18px; }
   .card, .card[data-agent="summary"] { padding: 20px; }
 }

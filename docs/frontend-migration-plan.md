@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | 1 | React 工程、独立入口和详情刷新 | 已完成 |
 | 2 | 视觉基础、研究阶段规则与行情 | 已完成 |
-| 3 | 发起研究、URL 恢复、进度轮询与局部结果 | 待实现 |
+| 3 | 发起研究、URL 恢复、进度轮询与局部结果 | 已完成 |
 | 4 | 失败重试、报告、PDF、历史与离线主流程 | 待实现 |
 | 5 | 后端响应契约、个人会话与任务归属 | 待实现 |
 | 6 | SQLite 持久化、提交幂等和并发上限 | 待实现 |
@@ -53,9 +53,10 @@ npm.cmd run test:browser --prefix frontend
 
 ## 阶段 3 · 创建、进度与局部结果
 
-- [ ] 在 `shared/api/` 建立 `fetch`、AbortSignal 和错误解析，接入 TanStack Query。在 `features/analysis/` 提交 `POST /api/analyze`，成功后用服务端 ID 跳转，失败时展示原因，创建请求关闭自动重试。
-- [ ] 将 `/api/status/{id}` 统一进 `useAnalysisProgress`。Worker 约每 2 秒查询，失败时回退到前台定时器。切回标签即时补查，同一 ID 合并在途读请求，切换任务使旧订阅失效。保留 30 分钟等待上限和每次运行的单次完成通知。
-- [ ] 用 `/api/analysis/{id}/partial` 加载新完成维度，刷新恢复时补取此前已完成的维度。测试从提交到进度、页面刷新、Worker 不可用、切换 ID 时旧请求迟到、终态仍有 Agent 运行及等待超时。早期预览测试使用离线接口夹具。
+- [x] 在 `shared/api/` 建立 `fetch`、AbortSignal 和错误解析，接入 TanStack Query。首页提交 `POST /api/analyze`，成功后用服务端 ID 跳转，失败时展示原因，创建请求关闭自动重试。
+- [x] 将 `/api/status/{id}` 统一进 `useAnalysisProgress`。Worker 约每 2 秒查询，失败时回退到前台定时器。切回标签即时补查，同一 ID 合并在途读请求，切换任务使旧订阅失效。保留 30 分钟等待上限和每次运行的单次完成通知。
+- [x] 用 `/api/analysis/{id}/partial` 加载新完成维度，刷新恢复时补取此前已完成的维度。用离线夹具覆盖提交、页面刷新、Worker 不可用、切换 ID 时旧响应迟到、终态仍有 Agent 运行及等待超时。
+- [x] 恢复旧版搜索框、示例标签和研究耗时。沿用 Lenis 1.1.14 的滚轮缓动，恢复 2.5 秒开场及行情入场动效，支持减少动态效果。桌面和手机视口对照输入框与提交按钮的外观。
 
 ## 阶段 4 · 报告、重试与历史
 
@@ -89,6 +90,7 @@ npm.cmd run test:browser --prefix frontend
 
 ## 完成记录
 
+- 2026-11-21 · 阶段 3。前端检查和生产构建通过，13 项 Vitest、10 项离线 Chrome 和旧版 73 项 Node 回归通过。阶段 4 可在 `frontend/src/features/analysis/useAnalysisProgress.ts` 接入报告跳转与重试后订阅，在 `frontend/src/features/analysis/partialQuery.ts` 按任务失效局部结果缓存。
 - 2026-11-21 · 阶段 2 视觉复核。已按旧版恢复首页行情区和图表卡、研究卡片及个股行情区的背景、边框、圆角、阴影。Chrome 在 1280px 和 390px 的同状态对照通过，后续页面按本文的视觉验收要求继续迁移。
 - 2026-11-21 · 阶段 2。锁文件安装和 `npm run check --prefix frontend` 通过，覆盖 9 项 Vitest 测试。旧 Node 回归 73 项通过。离线 Chrome 3 项通过，覆盖指数图表交互、工作台状态与个股周期缓存，以及指数和个股的上游错误提示。用本机 FastAPI 验证构建后的字体和独立图表脚本均可加载。阶段 3 从 `frontend/src/features/analysis/statusQuery.ts` 和 `frontend/src/shared/api/getJson.ts` 开始，接入提交、进度订阅和局部结果。
 - 2026-11-21 · 阶段 1。`npm ci --prefix frontend` 和 `npm run check --prefix frontend` 通过，包含 2 项 Vitest 路由测试。旧 Node 回归 73 项通过。`python scripts/run_ci_tests.py app` 通过 25 个测试文件，覆盖新增的 5 项 FastAPI 预览测试。用本机 Uvicorn 和 Chrome 验证生产预览、详情直达、旧首页及缺失资源的 `404`，并验证 Vite 开发预览和 `/api` 代理。工作台目前显示 URL 中的任务编号。阶段 2 从 `frontend/workbench.js`、`frontend/workbench.css` 和 `docs/workbench-ui-reference.md` 开始，按既有行为迁移视觉、阶段推导与行情。
