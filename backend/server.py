@@ -1178,8 +1178,43 @@ async def stock_market(code: str, days: int = 120, frequency: str = "d"):
 # ============================================================================
 
 frontend_dir = Path(__file__).parent.parent / "frontend"
+react_dist_dir = frontend_dir / "dist"
+
+
+def require_local_preview(request: Request) -> None:
+    require_local_page_access(request, "React 预览仅允许通过本机访问")
+
+
+@app.get("/react-preview/", include_in_schema=False)
+@app.get("/react-preview/app/analysis/{analysis_id}", include_in_schema=False)
+async def serve_react_preview(request: Request):
+    require_local_preview(request)
+    entry = react_dist_dir / "index.html"
+    if not entry.is_file():
+        raise HTTPException(status_code=404, detail="React preview has not been built")
+    return FileResponse(entry, media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/react-preview/assets/{asset_name}", include_in_schema=False)
+async def serve_react_preview_asset(request: Request, asset_name: str):
+    require_local_preview(request)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9.]+", asset_name):
+        raise HTTPException(status_code=404, detail="React preview asset not found")
+    asset = react_dist_dir / "assets" / asset_name
+    if not asset.is_file():
+        raise HTTPException(status_code=404, detail="React preview asset not found")
+    return FileResponse(asset, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+class LegacyStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        if path not in {"index.html", "workbench.css", "workbench.js"} and Path(path).parts[:1] != ("assets",):
+            raise HTTPException(status_code=404, detail="Not Found")
+        return await super().get_response(path, scope)
+
+
 if frontend_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
+    app.mount("/static", LegacyStaticFiles(directory=frontend_dir), name="static")
 
 # ============================================================================
 # Main Entry Point

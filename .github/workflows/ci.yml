@@ -36,6 +36,8 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           version: "0.8.12"
@@ -50,6 +52,8 @@ jobs:
           python -m compileall -q backend agents/src mcp-server/src mcp-server/mcp_server.py scripts tests mcp-server/tests
           node --check frontend/workbench.js
           node --test tests/frontend/test_workbench.cjs tests/frontend/test_workbench_chart.cjs
+          npm ci --prefix frontend
+          npm run check --prefix frontend
 
       - name: Install application dependencies
         run: uv pip install --system --python "$(command -v python)" -r requirements-test.txt

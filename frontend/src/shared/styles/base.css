@@ -1,0 +1,14 @@
+:root {
+  font-family: system-ui, "Microsoft YaHei", sans-serif;
+  color: #292724;
+  background: #f8f6f1;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: #265d46;
+  text-underline-offset: 0.2em;
+}

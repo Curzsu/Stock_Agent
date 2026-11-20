@@ -1,0 +1,5 @@
+.main {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: clamp(2rem, 7vw, 5rem) 1.25rem;
+}
