@@ -29,7 +29,12 @@ class ReactPreviewTest(unittest.TestCase):
 
     def test_preview_home_and_direct_workbench_share_revalidated_entry(self):
         html = self.build_preview()
-        for path in ("/react-preview/", "/react-preview/app/analysis/abc123"):
+        for path in (
+            "/react-preview/",
+            "/react-preview/app/history",
+            "/react-preview/app/analysis/abc123",
+            "/react-preview/app/analysis/abc123/report",
+        ):
             with self.subTest(path=path):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, 200)
@@ -62,7 +67,12 @@ class ReactPreviewTest(unittest.TestCase):
     def test_preview_is_restricted_to_local_requests(self):
         self.build_preview()
         with TestClient(server.app, base_url="http://localhost", client=("203.0.113.4", 50000)) as remote:
-            for path in ("/react-preview/", "/react-preview/assets/index-Ab12Cd34.js"):
+            for path in (
+                "/react-preview/",
+                "/react-preview/app/history",
+                "/react-preview/app/analysis/abc123/report",
+                "/react-preview/assets/index-Ab12Cd34.js",
+            ):
                 with self.subTest(path=path):
                     self.assertEqual(remote.get(path).status_code, 403)
 

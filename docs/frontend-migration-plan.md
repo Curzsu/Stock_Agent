@@ -15,7 +15,7 @@
 | 1 | React 工程、独立入口和详情刷新 | 已完成 |
 | 2 | 视觉基础、研究阶段规则与行情 | 已完成 |
 | 3 | 发起研究、URL 恢复、进度轮询与局部结果 | 已完成 |
-| 4 | 失败重试、报告、PDF、历史与离线主流程 | 待实现 |
+| 4 | 失败重试、报告、PDF、历史与离线主流程 | 已完成 |
 | 5 | 后端响应契约、个人会话与任务归属 | 待实现 |
 | 6 | SQLite 持久化、提交幂等和并发上限 | 待实现 |
 | 7 | 本机运维、登录界面与跨标签页缓存隔离 | 待实现 |
@@ -60,10 +60,10 @@ npm.cmd run test:browser --prefix frontend
 
 ## 阶段 4 · 报告、重试与历史
 
-- [ ] 在 `features/reports/` 读取 `completed` 和 `degraded` 的 `/api/result/{id}`。接入按报告路由加载的 react-markdown 和 remark-gfm，验证目录、财务表格、安全链接、原始 HTML 禁用和缺失维度提示。
-- [ ] 在 `features/analysis/` 增加失败维度和综合研判重试。`202` 后刷新该任务状态并使旧报告及 PDF 缓存失效，`409` 补查状态。`error` 时继续展示已有研究片段。
-- [ ] 在报告页单独呈现 PDF 状态。`404` 且 `detail.status=pending` 时继续检查，失败、不可用和无权访问时停止。验证下载链接与实际文件响应。接通 `features/history/`，支持从历史打开原任务。
-- [ ] CI 增加离线浏览器主流程，从发起研究走到报告。另测部分成功、失败重试、PDF 准备中和历史直达。逐项替换已被行为覆盖的旧 HTML 源码匹配用例。
+- [x] 已完成及部分完成的任务可以打开报告。报告路由按需加载 react-markdown 和 remark-gfm，覆盖目录、财务表格、安全链接、原始 HTML 禁用和缺失维度提示。
+- [x] 失败维度和综合研判支持重试。`202` 后刷新该任务状态，清理旧报告、PDF 和局部结果缓存。`409` 补查状态。`error` 时继续展示已有研究片段。
+- [x] 报告页单独呈现 PDF 状态。以单字节请求探测文件，仅当响应为 `404` 且 `detail.status=pending` 时继续检查。下载时验证完整 PDF 响应。历史列表可打开已有报告或继续查看任务进度。
+- [x] CI 增加离线 Chrome 主流程，覆盖发起研究到报告、部分成功、重试、PDF 准备中、下载和历史直达。桌面和手机视口对照旧版报告区与历史卡片的背景、边框、圆角和阴影。旧版页面的回归用例继续用于验收回退入口。
 
 ## 阶段 5 · 后端契约与数据归属
 
@@ -90,6 +90,7 @@ npm.cmd run test:browser --prefix frontend
 
 ## 完成记录
 
+- 2026-11-21 · 阶段 4。生产构建、15 项前端单测、15 项离线 Chrome、73 项旧版 Node 回归和 31 项 FastAPI 测试通过。阶段 5 从后端响应模型、账号与会话及任务所有者校验开始。
 - 2026-11-21 · 阶段 3。前端检查和生产构建通过，13 项 Vitest、10 项离线 Chrome 和旧版 73 项 Node 回归通过。阶段 4 可在 `frontend/src/features/analysis/useAnalysisProgress.ts` 接入报告跳转与重试后订阅，在 `frontend/src/features/analysis/partialQuery.ts` 按任务失效局部结果缓存。
 - 2026-11-21 · 阶段 2 视觉复核。已按旧版恢复首页行情区和图表卡、研究卡片及个股行情区的背景、边框、圆角、阴影。Chrome 在 1280px 和 390px 的同状态对照通过，后续页面按本文的视觉验收要求继续迁移。
 - 2026-11-21 · 阶段 2。锁文件安装和 `npm run check --prefix frontend` 通过，覆盖 9 项 Vitest 测试。旧 Node 回归 73 项通过。离线 Chrome 3 项通过，覆盖指数图表交互、工作台状态与个股周期缓存，以及指数和个股的上游错误提示。用本机 FastAPI 验证构建后的字体和独立图表脚本均可加载。阶段 3 从 `frontend/src/features/analysis/statusQuery.ts` 和 `frontend/src/shared/api/getJson.ts` 开始，接入提交、进度订阅和局部结果。

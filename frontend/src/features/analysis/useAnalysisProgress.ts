@@ -31,6 +31,7 @@ export function useAnalysisProgress(id: string, submitted = false) {
   });
   const partial = useQuery(analysisPartialQuery(id, snapshot));
   const [issue, setIssue] = useState<Exclude<PollEvent, { type: 'status' }>>();
+  const [refreshCycle, setRefreshCycle] = useState(0);
 
   useEffect(() => {
     const key = analysisStatusKey(id);
@@ -105,7 +106,7 @@ export function useAnalysisProgress(id: string, submitted = false) {
       stop();
       document.removeEventListener('visibilitychange', refreshVisible);
     };
-  }, [id, submitted, client]);
+  }, [id, submitted, client, refreshCycle]);
 
-  return { snapshot, partial, issue };
+  return { snapshot, partial, issue, refresh: () => setRefreshCycle((current) => current + 1) };
 }

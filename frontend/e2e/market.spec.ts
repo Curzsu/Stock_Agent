@@ -21,6 +21,8 @@ async function mockMarket(page: Page) {
     if (url.pathname === '/api/market-kline') {
       const days = Number(url.searchParams.get('days'));
       await route.fulfill({ json: { ok: true, data: candles(Math.min(days, 360)) } });
+    } else if (url.pathname === '/api/history') {
+      await route.fulfill({ json: { history: [] } });
     } else if (url.pathname === '/api/status/fixture') {
       await route.fulfill({ json: {
         status: 'running',
@@ -129,6 +131,7 @@ test('index shows the upstream error instead of an empty chart', async ({ page }
   );
   await page.goto('/react-preview/');
   const market = page.getByRole('region', { name: '上证指数行情' });
+  await market.scrollIntoViewIfNeeded();
   await expect(market.getByRole('status')).toHaveText('指数查询超时');
   await expect(market.locator('canvas')).toHaveCount(0);
 });

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
+import { dimensionTitles } from '../reports/reportQueries';
 import { MarketPanel } from '../market/MarketPanel';
 import { PARTIAL_KEYS, type PartialResults } from './partialQuery';
 import { AGENTS, agentDetails, agentSummary, derivePhase, isTerminalStatus, type Agent, type AgentStatus, type AnalysisSnapshot } from './progress';
 import { useAnalysisProgress } from './useAnalysisProgress';
+import { useRetryAnalysis } from './useRetryAnalysis';
 import styles from './WorkbenchPage.module.css';
 
 const agentCopy: Record<Agent, [string, string]> = {
@@ -24,11 +26,13 @@ const phaseLabels: Record<ReturnType<typeof derivePhase>, string> = {
 };
 const statusLabels: Record<AgentStatus, string> = { waiting: '等待', running: '分析中', completed: '已完成', failed: '需要重试' };
 
-function AgentCard({ agent, detail, number, partial }: {
+function AgentCard({ agent, detail, number, partial, onRetry, pending }: {
   agent: Agent;
   detail: ReturnType<typeof agentDetails>;
   number: number;
   partial?: string;
+  onRetry?: () => void;
+  pending?: Agent;
 }) {
   const [title, description] = agentCopy[agent];
   const status = agent === 'summary' && detail.status === 'waiting' ? '等待前置研究' : statusLabels[detail.status];
@@ -48,18 +52,30 @@ function AgentCard({ agent, detail, number, partial }: {
           <div data-scroll-region>{partial}</div>
         </details>
       )}
+      {onRetry && <button className={styles.retry} type="button" onClick={onRetry} disabled={Boolean(pending)}>
+        {pending === agent ? '正在提交重试…' : `重试${dimensionTitles[agent]}`}
+      </button>}
     </article>
   );
 }
 
-function ResearchGrid({ snapshot, partial }: { snapshot: AnalysisSnapshot; partial?: PartialResults }) {
+function ResearchGrid({ snapshot, partial, retry }: {
+  snapshot: AnalysisSnapshot;
+  partial?: PartialResults;
+  retry: ReturnType<typeof useRetryAnalysis>;
+}) {
+  const phase = derivePhase(snapshot);
   const agents = AGENTS.map((agent, index) => {
     const detail = agentDetails(snapshot, agent);
+    const retryable = detail.status === 'failed'
+      && (phase === 'completed' || phase === 'degraded' || (phase === 'error' && agent === 'summary'));
     return {
       agent,
       detail,
       number: index + 1,
       partial: agent !== 'summary' && detail.status === 'completed' ? partial?.[PARTIAL_KEYS[agent]] : undefined,
+      pending: retry.pending,
+      onRetry: retryable ? () => { void retry.retry(agent); } : undefined,
     };
   });
   const completed = agents.filter(({ detail }) => detail.status === 'completed').length;
@@ -92,8 +108,17 @@ function ElapsedTime({ start, end, stopped }: { start?: string | null; end?: str
 }
 
 export function WorkbenchPage({ id, submittedQuery }: { id: string; submittedQuery?: string }) {
-  const { snapshot, partial, issue } = useAnalysisProgress(id, Boolean(submittedQuery));
+  const { snapshot, partial, issue, refresh } = useAnalysisProgress(id, Boolean(submittedQuery));
+  const retry = useRetryAnalysis(id, refresh);
+  const navigate = useNavigate();
   const phase = derivePhase(snapshot);
+  const reportReady = phase === 'completed' || phase === 'degraded';
+  const reportPath = `/app/analysis/${encodeURIComponent(id)}/report`;
+  useEffect(() => {
+    if (reportReady && !retry.pending && (submittedQuery || retry.accepted)) {
+      void navigate(reportPath, { replace: true });
+    }
+  }, [reportReady, retry.pending, submittedQuery, retry.accepted, navigate, reportPath]);
   const stopped = (snapshot && isTerminalStatus(snapshot)) || issue?.type === 'timeout' || (issue?.type === 'error' && issue.fatal);
   const label = snapshot?.company_name || submittedQuery;
   const pollMessage = issue?.type === 'timeout' ? '分析超时，请稍后重试。' : issue?.message;
@@ -112,9 +137,11 @@ export function WorkbenchPage({ id, submittedQuery }: { id: string; submittedQue
           {!pollMessage && <p className={styles.phase} role="status">{activeSnapshot ? snapshot?.current_task || phaseLabels[phase] : '正在读取任务状态…'}</p>}
           {pollMessage && <p className={styles.error} role="alert">{pollMessage}</p>}
           {snapshot?.error && <p className={styles.error} role="alert">{snapshot.error}</p>}
+          {reportReady && <Link to={reportPath}>查看报告</Link>}
         </div>
       </header>
-      {activeSnapshot && <ResearchGrid snapshot={activeSnapshot} partial={partial.data} />}
+      {retry.error && <p className={styles.partialError} role="alert">{retry.error}</p>}
+      {activeSnapshot && <ResearchGrid snapshot={activeSnapshot} partial={partial.data} retry={retry} />}
       {partial.error && (
         <p className={styles.partialError} role="status">
           {partial.error.message} <button type="button" onClick={() => { void partial.refetch(); }}>重新读取阶段结果</button>

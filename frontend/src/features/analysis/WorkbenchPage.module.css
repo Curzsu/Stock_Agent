@@ -96,6 +96,8 @@
 .partial div { max-height: 16rem; overflow: auto; overscroll-behavior: contain; color: var(--wb-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
 .partialError { color: var(--wb-red); font-size: 13px; }
 .partialError button { padding: 4px 8px; border: 0; border-radius: 7px; background: var(--wb-paper-raised); color: inherit; font: inherit; cursor: pointer; }
+.retry { align-self: start; min-height: 44px; margin-top: 12px; padding: 0 13px; border: 0; border-radius: 9px; color: var(--wb-red); background: rgba(255,255,255,.45); font: 400 12px/1 var(--wb-sans); cursor: pointer; }
+.retry:disabled { opacity: .65; cursor: wait; }
 .card[data-agent="summary"] { min-height: 0; padding: 24px; }
 .card[data-agent="summary"] .cardMeta { margin-bottom: 23px; }
 .card[data-agent="summary"] h3 { font-size: 24px; letter-spacing: -.02em; }

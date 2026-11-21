@@ -55,6 +55,11 @@ jobs:
           npm ci --prefix frontend
           npm run check --prefix frontend
 
+      - name: Test offline browser workflow
+        run: |
+          npm exec --prefix frontend -- playwright install --with-deps chromium
+          npm run test:browser --prefix frontend
+
       - name: Install application dependencies
         run: uv pip install --system --python "$(command -v python)" -r requirements-test.txt
 

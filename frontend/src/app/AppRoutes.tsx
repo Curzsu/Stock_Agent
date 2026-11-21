@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, Route, Routes, useLocation, useParams } from 'react-router';
 import { AnalysisForm } from '../features/analysis/AnalysisForm';
 import { WorkbenchPage } from '../features/analysis/WorkbenchPage';
+import { HistoryPanel } from '../features/history/HistoryPanel';
 import { MarketPanel } from '../features/market/MarketPanel';
 import { INTRO_LOCK_MS, usePageScroll } from './usePageScroll';
 import styles from './Preview.module.css';
 
 const legacyHome = import.meta.env.DEV ? 'http://127.0.0.1:8100/' : '/';
+const ReportPage = lazy(() => import('../features/reports/ReportPage'));
 
 function WorkbenchPreview() {
   const { id } = useParams<'id'>();
@@ -71,10 +73,13 @@ export function AppRoutes() {
                 <AnalysisForm />
               </div>
             </section>
+            <HistoryPanel />
             <MarketPanel variant="index" />
           </>
         )} />
         <Route path="/app/analysis/:id" element={<WorkbenchPreview />} />
+        <Route path="/app/analysis/:id/report" element={<Suspense fallback={<p role="status">正在加载报告…</p>}><ReportPage /></Suspense>} />
+        <Route path="/app/history" element={<HistoryPanel standalone />} />
         <Route path="*" element={(
           <>
             <h1>页面未找到</h1>

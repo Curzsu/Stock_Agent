@@ -1186,7 +1186,9 @@ def require_local_preview(request: Request) -> None:
 
 
 @app.get("/react-preview/", include_in_schema=False)
+@app.get("/react-preview/app/history", include_in_schema=False)
 @app.get("/react-preview/app/analysis/{analysis_id}", include_in_schema=False)
+@app.get("/react-preview/app/analysis/{analysis_id}/report", include_in_schema=False)
 async def serve_react_preview(request: Request):
     require_local_preview(request)
     entry = react_dist_dir / "index.html"

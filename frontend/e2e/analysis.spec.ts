@@ -5,6 +5,8 @@ async function mockApi(page: Page, handle: (route: Route, path: string) => Promi
     const path = new URL(route.request().url()).pathname;
     if (path.startsWith('/api/market-') || path === '/api/stock-market') {
       await route.fulfill({ json: { ok: false, error: '离线测试' } });
+    } else if (path === '/api/history') {
+      await route.fulfill({ json: { history: [] } });
     } else {
       await handle(route, path);
     }
@@ -41,6 +43,8 @@ test('submits the old search form and resumes partial progress at the task URL',
     } else if (path === '/api/analysis/research-1/partial') {
       partialReads += 1;
       await route.fulfill({ json: { results: { fundamental_analysis: '财务数据已核对。<script>bad</script>' } } });
+    } else if (path === '/api/result/research-1') {
+      await route.fulfill({ json: { company_name: '贵州茅台', final_report: '综合结论已生成。' } });
     } else {
       await route.fulfill({ status: 404, json: {} });
     }
@@ -55,10 +59,12 @@ test('submits the old search form and resumes partial progress at the task URL',
   await expect(page.getByRole('heading', { name: '正在研究 贵州茅台' })).toBeVisible();
   await page.getByText('查看阶段结果').click();
   await expect(page.getByText('财务数据已核对。<script>bad</script>')).toBeVisible();
-  await expect(page.getByText('研究报告已完成')).toBeVisible({ timeout: 8000 });
+  await expect(page).toHaveURL(/\/app\/analysis\/research-1\/report$/, { timeout: 8000 });
+  await expect(page.getByText('综合结论已生成。')).toBeVisible();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, 'finexTestNotifications'))).toEqual(['股票分析完成']);
   expect(partialReads).toBe(1);
 
+  await page.getByRole('link', { name: '返回研究工作台' }).click();
   await page.reload();
   await page.getByText('查看阶段结果').click();
   await expect(page.getByText('财务数据已核对。<script>bad</script>')).toBeVisible();

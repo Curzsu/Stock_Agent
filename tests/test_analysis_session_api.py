@@ -93,6 +93,10 @@ class TestAnalysisSessionApi(unittest.TestCase):
             self.assertEqual(ready.status_code, 200)
             self.assertEqual(ready.content, content)
             self.assertEqual(ready.headers["content-type"], "application/pdf")
+            probe = self.client.get("/api/report-pdf/session1", headers={"Range": "bytes=0-0"})
+            self.assertEqual(probe.status_code, 206)
+            self.assertEqual(probe.headers["content-range"], f"bytes 0-0/{len(content)}")
+            self.assertEqual(probe.content, content[:1])
 
     def test_invalid_agent_result_is_failed_instead_of_completed(self):
         for agent_key, (result_key, _) in server.AGENT_RESULT_KEYS.items():
