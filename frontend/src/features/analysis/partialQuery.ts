@@ -1,5 +1,6 @@
 import { queryOptions } from '@tanstack/react-query';
 import { getJson } from '../../shared/api/getJson';
+import type { components } from '../../shared/api/schema';
 import { agentDetails, type AnalysisSnapshot } from './progress';
 
 export const PARTIAL_KEYS = {
@@ -10,7 +11,7 @@ export const PARTIAL_KEYS = {
 } as const;
 
 type PartialAgent = keyof typeof PARTIAL_KEYS;
-export type PartialResults = Partial<Record<typeof PARTIAL_KEYS[PartialAgent], string>>;
+export type PartialResults = components['schemas']['AnalysisFragments'];
 
 export function analysisPartialQuery(id: string, snapshot?: AnalysisSnapshot) {
   const completed = snapshot ? (Object.keys(PARTIAL_KEYS) as PartialAgent[])
@@ -18,7 +19,7 @@ export function analysisPartialQuery(id: string, snapshot?: AnalysisSnapshot) {
   return queryOptions({
     queryKey: ['analysis', id, 'partial', ...completed],
     queryFn: async ({ signal }) => {
-      const data = await getJson<{ results: PartialResults }>(`/api/analysis/${encodeURIComponent(id)}/partial`, signal);
+      const data = await getJson<components['schemas']['AnalysisPartial']>(`/api/analysis/${encodeURIComponent(id)}/partial`, signal);
       return data.results;
     },
     enabled: completed.length > 0,

@@ -2,17 +2,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { getJson } from '../../shared/api/getJson';
-import type { AnalysisSnapshot } from '../analysis/progress';
+import type { components } from '../../shared/api/schema';
 import styles from './HistoryPanel.module.css';
 
-type HistoryItem = {
-  analysis_id: string;
-  company_name?: string;
-  stock_code?: string;
-  analysis_date?: string;
-  status?: AnalysisSnapshot['status'];
-  api_profile?: string | null;
-};
+type HistoryItem = components['schemas']['HistoryItem'];
 
 const labels = {
   pending: '等待中', running: '分析中', completed: '已完成', degraded: '部分完成', error: '出错',
@@ -41,7 +34,7 @@ export function HistoryPanel({ standalone = false }: { standalone?: boolean }) {
   const history = useQuery({
     queryKey: ['history'],
     queryFn: async ({ signal }) => {
-      const data = await getJson<{ history: HistoryItem[] }>('/api/history', signal);
+      const data = await getJson<components['schemas']['AnalysisHistory']>('/api/history', signal);
       return Array.isArray(data?.history) ? data.history.slice().reverse() : [];
     },
     retry: false,

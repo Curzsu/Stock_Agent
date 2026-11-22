@@ -63,6 +63,12 @@ jobs:
       - name: Install application dependencies
         run: uv pip install --system --python "$(command -v python)" -r requirements-test.txt
 
+      - name: Verify generated API types
+        run: |
+          python -m scripts.export_openapi .runtime/openapi.json
+          npm run api:generate --prefix frontend
+          git diff --exit-code -- frontend/src/shared/api/schema.ts
+
       - name: Install Pandoc
         run: |
           sudo apt-get update
@@ -70,7 +76,12 @@ jobs:
           pandoc --version
 
       - name: Test application
-        run: python scripts/run_ci_tests.py app
+        run: |
+          export POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+          export POSTGRES_PORT=55432
+          export FINEX_TEST_DATABASE_URL="postgresql://finex:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/finex"
+          docker compose up -d --wait
+          python scripts/run_ci_tests.py app
 
       - name: Install locked MCP dependencies
         run: uv sync --locked --directory mcp-server --python "$(command -v python)"

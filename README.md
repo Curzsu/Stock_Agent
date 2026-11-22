@@ -90,13 +90,22 @@ USE_LOCAL_MODEL=api
 
 ### 3. 启动并发起研究
 
-在项目根目录运行：
+本机用 Docker Compose 运行 PostgreSQL，FastAPI 通过宿主机的 Python 虚拟环境运行。打开 Docker Desktop，在项目根目录的 PowerShell 里执行以下命令。首次启动时输入自选的数据库密码，之后沿用该密码。数据库默认监听 `127.0.0.1:5432`，数据保存在 Compose 命名卷中。
 
-```bash
+```powershell
+$dbSecret = Read-Host 'PostgreSQL 密码' -AsSecureString
+$env:POSTGRES_PASSWORD = [System.Net.NetworkCredential]::new('', $dbSecret).Password
+$dbPasswordForUrl = [uri]::EscapeDataString($env:POSTGRES_PASSWORD)
+$env:DATABASE_URL = "postgresql://finex:${dbPasswordForUrl}@127.0.0.1:5432/finex"
+docker compose up -d --wait
+python -m backend.accounts migrate
+python -m backend.accounts create-user alice
 python -m uvicorn backend.server:app --host 127.0.0.1 --port 8100
 ```
 
-打开 [http://localhost:8100](http://localhost:8100)，输入公司名称或股票代码开始研究。也可使用 [Windows 启动脚本](scripts/start_server.bat) 或 [Linux/macOS 启动脚本](scripts/start_server.sh)。
+若 `5432` 已被占用，设置 `POSTGRES_PORT` 并同步修改 `DATABASE_URL` 的端口。`create-user` 会提示设置试用账号的密码，每个账号创建一次即可。已完成数据库准备的终端也可以运行 [Windows 启动脚本](scripts/start_server.bat) 或 [Linux/macOS 启动脚本](scripts/start_server.sh)。
+
+浏览器可以打开旧首页和构建后的 React 预览进行视觉对照。第 5 阶段通过 `POST /api/session` 登录并验证研究 API，浏览器登录页安排在第 7 阶段。 [本机预览入口](docs/frontend-migration-plan.md#阶段-1--独立入口)
 
 从首页打开「配置 API Key」，可在 A–E 页签分别保存 API Key、Base URL 和 Model。已有配置默认归入 A。点击「启用」后，新发起的研究使用所选配置，已经发起的研究和它的重试继续使用启动时的配置，无需重启服务。历史记录会标明使用的配置。
 
@@ -173,12 +182,22 @@ uv run --locked --no-sync --directory mcp-server python ../scripts/run_ci_tests.
 
 完整检查范围见 [CI 设计](docs/ci-design.md)，运行时版本验证见 [开发与排障说明](docs/development.md)。
 
+改动 FastAPI 请求或响应契约后，从项目根目录刷新前端类型。双账号集成测试使用 `FINEX_TEST_DATABASE_URL` 指向的 PostgreSQL，并在独立的临时 schema 中运行。
+
+```bash
+python -m scripts.export_openapi .runtime/openapi.json
+npm run api:generate --prefix frontend
+```
+
 ### API
 
-启动后访问 [交互式 API 文档](http://localhost:8100/docs) 查看参数与接口。发起研究的示例：
+先在 `POST /api/session` 发送含 `username` 和 `password` 的 JSON，并设置与服务入口相同的 `Origin`。保留响应的会话 Cookie 和 `csrf_token`。`GET /api/session` 可再次读取当前会话的 `csrf_token`。发起研究、重试、删除和退出时，写请求同时发送 `Origin` 和 `X-CSRF-Token`。接口参数见 [交互式 API 文档](http://127.0.0.1:8100/docs)。
 
 ```http
 POST /api/analyze
+Origin: http://127.0.0.1:8100
+Cookie: finex_session=<session-id>
+X-CSRF-Token: <csrf-token>
 Content-Type: application/json
 
 {"query": "比亚迪"}

@@ -18,6 +18,9 @@ async function stubApi(page: Page, handle: (route: Route, path: string) => Promi
     if (path.startsWith('/api/market-') || path === '/api/stock-market') {
       return route.fulfill({ json: { ok: false, error: '离线行情' } });
     }
+    if (path === '/api/session') {
+      return route.fulfill({ json: { user_id: 'fixture', username: 'alice', csrf_token: 'fixture-csrf' } });
+    }
     return handle(route, path);
   });
 }
@@ -69,6 +72,7 @@ test('retries a failed dimension and clears the previous report and PDF state', 
   await stubApi(page, async (route, path) => {
     if (path.endsWith('/retry/technical')) {
       expect(route.request().method()).toBe('POST');
+      expect(route.request().headers()['x-csrf-token']).toBe('fixture-csrf');
       started = true;
       retries += 1;
       await route.fulfill({ status: 202, json: { status: 'retrying' } });

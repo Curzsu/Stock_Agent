@@ -7,6 +7,7 @@ import threading
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -22,9 +23,16 @@ from src.utils import pdf_converter
 class TestAnalysisSessionApi(unittest.TestCase):
     def setUp(self):
         server.analysis_sessions.clear()
+        principal = server.ActiveSession(uuid4(), "fixture", "offline-session")
+        patcher = patch.dict(server.app.dependency_overrides, {server.require_session: lambda: principal})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.client = TestClient(server.app, base_url="http://localhost", client=("127.0.0.1", 50000))
+        self.client.headers.update({"Origin": "http://localhost", "X-CSRF-Token": principal.public().csrf_token})
+        self.addCleanup(self.client.close)
         self.session = server.AnalysisStatus(
             analysis_id="session1",
+            owner_id=principal.user_id,
             status="running",
             progress={
                 "fundamental": "completed",
@@ -72,12 +80,23 @@ class TestAnalysisSessionApi(unittest.TestCase):
             self.session.status = "completed"
             self.session.result = {"report_path": str(report)}
             report.with_suffix(".pdf.status.json").write_text(
-                json.dumps({"status": "failed", "message": "缺少 XeLaTeX/Tectonic"}), encoding="utf-8",
+                json.dumps({"status": "failed", "message": f"Tectonic failure: {report}"}), encoding="utf-8",
             )
             response = self.client.get("/api/report-pdf/session1")
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["detail"]["status"], "failed")
         self.assertIn("Tectonic", response.json()["detail"]["message"])
+        self.assertNotIn(str(report), response.json()["detail"]["message"])
+
+    def test_status_keeps_provider_diagnostics_server_side(self):
+        diagnostic = "provider rejected secret-credential reading /local/report.md"
+        server.record_agent_result(self.session, "summary", {"data": {"summary_error": diagnostic}})
+        server.finish_analysis_session(self.session)
+        response = self.client.get("/api/status/session1")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("secret-credential", response.text)
+        self.assertNotIn("/local/report.md", response.text)
+        self.assertIn("重试", response.json()["error"])
 
     def test_pdf_pending_and_success_keep_existing_download_contract(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -482,11 +501,11 @@ class TestAnalysisSessionApi(unittest.TestCase):
                 try:
                     # The queued job must block deletion even before it starts.
                     with self.assertRaises(server.HTTPException) as queued:
-                        await server.delete_analysis_history("session1")
+                        await server.delete_analysis_history(self.session)
                     self.assertEqual(queued.exception.status_code, 409)
                     self.assertTrue(await asyncio.to_thread(entered.wait, 5))
                     with self.assertRaises(server.HTTPException) as caught:
-                        await server.delete_analysis_history("session1")
+                        await server.delete_analysis_history(self.session)
                     self.assertEqual(caught.exception.status_code, 409)
                     self.assertTrue(report.exists())
                     self.assertIn("session1", server.analysis_sessions)
@@ -494,7 +513,7 @@ class TestAnalysisSessionApi(unittest.TestCase):
                     release.set()
                     await task
                 self.assertTrue(pdf.exists())
-                response = await server.delete_analysis_history("session1")
+                response = await server.delete_analysis_history(self.session)
                 self.assertEqual(response["status"], "deleted")
                 self.assertFalse(pdf.exists())
                 self.assertFalse(report.exists())

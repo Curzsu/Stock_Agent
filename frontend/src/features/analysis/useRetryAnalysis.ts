@@ -1,6 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { HttpError, requestJson } from '../../shared/api/getJson';
+import { HttpError } from '../../shared/api/getJson';
+import type { components } from '../../shared/api/schema';
+import { requestSessionWrite } from '../../shared/api/session';
 import { pdfKey, reportKey } from '../reports/reportQueries';
 import type { Agent, AnalysisSnapshot } from './progress';
 import { analysisStatusKey } from './statusQuery';
@@ -20,7 +22,7 @@ export function useRetryAnalysis(id: string, refresh: () => void) {
     setPending(agent);
     setError('');
     try {
-      await requestJson(`/api/analysis/${encodeURIComponent(id)}/retry/${agent}`, {
+      await requestSessionWrite<components['schemas']['AnalysisRetry']>(`/api/analysis/${encodeURIComponent(id)}/retry/${agent}`, {
         method: 'POST',
         signal: controller.signal,
       });

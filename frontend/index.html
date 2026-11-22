@@ -2441,6 +2441,12 @@
     // API 基址（同源相对路径，本地与部署均可直接使用；
     // 放在脚本最顶部，避免在 const 声明前被 loadHistory() 等调用触发 TDZ 报错）
     const API_BASE = '/api';
+    async function getSessionWriteHeaders() {
+      const response = await fetch(`${API_BASE}/session`);
+      const session = await response.json();
+      if (!response.ok) throw new Error(session.detail || '请登录');
+      return { 'X-CSRF-Token': session.csrf_token };
+    }
 
     // 每次刷新都回到页面顶部：关闭浏览器的滚动位置恢复，并强制归零。
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -3478,6 +3484,7 @@
         try {
           const res = await fetch(`${API_BASE}/history/${targetId}`, {
             method: 'DELETE',
+            headers: await getSessionWriteHeaders(),
           });
           const data = await res.json().catch(() => ({}));
 
@@ -3732,10 +3739,12 @@
       const viewVersion = _analysisViewVersion;
       currentQuery = query;
       try {
+        const csrfHeaders = await getSessionWriteHeaders();
+        if (viewVersion !== _analysisViewVersion) return;
         // Start analysis
         const response = await fetch(`${API_BASE}/analyze`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...csrfHeaders },
           body: JSON.stringify({ query })
         });
 
@@ -3791,8 +3800,11 @@
       const analysisId = currentAnalysisId;
       const viewVersion = _analysisViewVersion;
       try {
+        const csrfHeaders = await getSessionWriteHeaders();
+        if (viewVersion !== _analysisViewVersion) return;
         const response = await fetch(`${API_BASE}/analysis/${analysisId}/retry/${agentKey}`, {
           method: 'POST',
+          headers: csrfHeaders,
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));

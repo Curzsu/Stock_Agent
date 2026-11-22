@@ -639,15 +639,23 @@ test('a late resume response cannot replace the current stock or restart its tim
 test('a late analysis-start response cannot activate an obsolete query', async () => {
   const { context } = navigationHarness();
   const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
+  const csrf = html.indexOf('    async function getSessionWriteHeaders(');
+  vm.runInContext(html.slice(csrf, html.indexOf('\n    }', csrf) + 6), context);
   const start = html.indexOf('    async function startRealAnalysis(');
   vm.runInContext(html.slice(start, html.indexOf('    async function loadWorkbenchMarket', start)), context);
   const polled = [];
   context.pollAnalysisStatus = () => polled.push(context.currentAnalysisId);
   let resolveA;
-  context.fetch = (_url, options) => JSON.parse(options.body).query === 'A'
-    ? new Promise((resolve) => { resolveA = resolve; })
-    : Promise.resolve({ ok: true, json: async () => ({ analysis_id: 'B' }) });
+  let postedA;
+  const postingA = new Promise((resolve) => { postedA = resolve; });
+  context.fetch = async (url, options) => {
+    if (url === '/api/session') return { ok: true, json: async () => ({ csrf_token: 'fixture-csrf' }) };
+    assert.equal(options.headers['X-CSRF-Token'], 'fixture-csrf');
+    if (JSON.parse(options.body).query !== 'A') return { ok: true, json: async () => ({ analysis_id: 'B' }) };
+    return new Promise((resolve) => { resolveA = resolve; postedA(); });
+  };
   const requestA = context.startRealAnalysis('A');
+  await postingA;
   context._analysisViewVersion++;
   await context.startRealAnalysis('B');
   resolveA({ ok: true, json: async () => ({ analysis_id: 'A' }) });

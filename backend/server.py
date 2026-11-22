@@ -19,6 +19,7 @@ from ipaddress import ip_address
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Literal
 from pathlib import Path
+from uuid import UUID, uuid4
 
 # Add project root and Financial-MCP-Agent to path
 project_root = Path(__file__).parent.parent
@@ -27,8 +28,10 @@ sys.path.insert(0, str(project_root / "agents"))
 
 import asyncio
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, PrivateAttr, field_validator
 import baostock as bs
@@ -67,6 +70,12 @@ from src.utils.pdf_converter import derive_pdf_path, get_pdf_status, is_pdf_gene
 from src.utils.stock_extractor import extract_stock_info, COMPANY_CODE_MAP
 from src.utils.agent_output import require_analysis_text
 from backend.market_data import fetch_stock_market
+from backend.accounts import SESSION_ERRORS, ActiveSession, require_session, require_session_write, router as session_router
+from backend.api_models import (
+    AnalysisCreated, AnalysisDeleted, AnalysisHistory, AnalysisPartial, AnalysisReport,
+    AnalysisRetry, AnalysisStatusResponse, ApiError, IndexMarketResponse, MarketError,
+    PdfError, StockMarketResponse,
+)
 
 # Import MCP cleanup function
 from src.tools.mcp_client import close_mcp_client_sessions
@@ -100,9 +109,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS: 前端用纯 fetch 无凭证（无 cookie/Authorization），allow_credentials
-# 设为 False。allow_origins=["*"] + allow_credentials=True 违反 CORS 规范，
-# 且 Starlette 会回显任意源+凭证头，放大安全面。
+# Browser sessions use the same-origin API, including behind the Vite proxy.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -110,6 +117,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(session_router)
+
+
+@app.middleware("http")
+async def mark_private_responses(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path in {"/api/session", "/api/analyze", "/api/history"} or path.startswith((
+        "/api/status/", "/api/analysis/", "/api/result/", "/api/report-pdf/", "/api/history/",
+    )):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.exception_handler(RequestValidationError)
+async def validate_request_response(request: Request, exc: RequestValidationError):
+    if request.url.path == "/api/session" and request.method == "POST":
+        return JSONResponse({"detail": "用户名或密码格式无效"}, status_code=422)
+    return await request_validation_exception_handler(request, exc)
 
 
 @app.on_event("shutdown")
@@ -386,6 +412,7 @@ class AnalyzeRequest(BaseModel):
 class AnalysisStatus(BaseModel):
     """Status model for tracking analysis progress"""
     analysis_id: str
+    owner_id: UUID | None = None
     status: str  # 'pending', 'running', 'completed', 'error'
     progress: Dict[str, str]  # agent_name -> status
     start_time: Optional[str] = None
@@ -512,6 +539,16 @@ def _env_assignment(key: str, value: str) -> str:
 # ============================================================================
 
 analysis_sessions: Dict[str, AnalysisStatus] = {}
+TASK_ERRORS = {**SESSION_ERRORS, 404: {"model": ApiError}}
+
+
+async def require_owned_analysis(
+    analysis_id: str, principal: ActiveSession = Depends(require_session),
+) -> AnalysisStatus:
+    session = analysis_sessions.get(analysis_id)
+    if session is None or session.owner_id != principal.user_id:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return session
 
 # ============================================================================
 # Helper Functions
@@ -717,9 +754,10 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         session.error = f"行情数据服务（baostock）暂时不可用，请稍后重试：{e}"
         session.end_time = datetime.now().isoformat()
 
-    except Exception as e:
+    except Exception as exc:
+        print(f"Warning: analysis {analysis_id} failed ({type(exc).__name__})")
         session.status = "error"
-        session.error = str(e)
+        session.error = "研究执行失败，请查看本机服务日志后重试。"
         session.end_time = datetime.now().isoformat()
 
     finally:
@@ -739,16 +777,15 @@ async def serve_frontend():
         return HTMLResponse(content=frontend_path.read_text(encoding="utf-8"))
     raise HTTPException(status_code=404, detail="Frontend not found")
 
-@app.post("/api/analyze")
-async def start_analysis(request: AnalyzeRequest):
+@app.post("/api/analyze", response_model=AnalysisCreated, responses=SESSION_ERRORS)
+async def start_analysis(request: AnalyzeRequest, principal: ActiveSession = Depends(require_session_write)):
     """Start a new analysis task"""
-    import uuid
-
-    analysis_id = str(uuid.uuid4())[:8]
+    analysis_id = uuid4().hex
 
     # Create session
     session = AnalysisStatus(
         analysis_id=analysis_id,
+        owner_id=principal.user_id,
         status="pending",
         progress={
             "fundamental": "waiting",
@@ -776,44 +813,46 @@ async def start_analysis(request: AnalyzeRequest):
         "message": f"Analysis started for: {request.query}"
     }
 
-@app.get("/api/status/{analysis_id}")
-async def get_analysis_status(analysis_id: str):
+@app.get("/api/status/{analysis_id}", response_model=AnalysisStatusResponse, responses=TASK_ERRORS)
+async def get_analysis_status(session: AnalysisStatus = Depends(require_owned_analysis)):
     """Get the current status of an analysis"""
-    if analysis_id not in analysis_sessions:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-
-    session = analysis_sessions[analysis_id]
+    error = session.error
+    if error and session.agent_details["summary"]["status"] == "failed":
+        error = "汇总报告生成失败，可重试汇总（已完成的分析会保留）。"
+    elif error and error.startswith("行情数据服务（baostock）"):
+        error = error.partition("：")[0]
     return {
         "analysis_id": session.analysis_id,
         "status": session.status,
         "progress": session.progress,
         "start_time": session.start_time,
         "end_time": session.end_time,
-        "error": session.error,
-        "agent_details": session.agent_details,
+        "error": error,
+        "agent_details": {
+            key: {**detail, "error": "该维度未取得有效结果，可在研究结束后重试。" if detail.get("error") else None}
+            for key, detail in session.agent_details.items()
+        },
         "current_task": session.current_task,
         "company_name": session.company_name,
         "stock_code": session.initial_data.get("stock_code"),
     }
 
 
-@app.get("/api/analysis/{analysis_id}/partial")
-async def get_partial_results(analysis_id: str):
+@app.get("/api/analysis/{analysis_id}/partial", response_model=AnalysisPartial,
+         response_model_exclude_unset=True, responses=TASK_ERRORS)
+async def get_partial_results(session: AnalysisStatus = Depends(require_owned_analysis)):
     """Return analysis dimensions that have completed so far."""
-    session = analysis_sessions.get(analysis_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    return {"analysis_id": analysis_id, "results": session.partial_results}
+    return {"analysis_id": session.analysis_id, "results": session.partial_results}
 
 
-@app.post("/api/analysis/{analysis_id}/retry/{agent_key}", status_code=202)
-async def retry_failed_agent(analysis_id: str, agent_key: str):
+@app.post("/api/analysis/{analysis_id}/retry/{agent_key}", status_code=202, response_model=AnalysisRetry,
+          dependencies=[Depends(require_session_write)],
+          responses={**TASK_ERRORS, 409: {"model": ApiError}, 422: {"model": ApiError}})
+async def retry_failed_agent(agent_key: str, session: AnalysisStatus = Depends(require_owned_analysis)):
     """Schedule a retry for one failed analysis dimension."""
     if agent_key not in {*RETRYABLE_AGENTS, "summary"}:
         raise HTTPException(status_code=422, detail="Unknown analysis agent")
-    session = analysis_sessions.get(analysis_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+    analysis_id = session.analysis_id
     if session.status not in {"completed", "degraded", "error"}:
         raise HTTPException(status_code=409, detail="Wait for the current workflow to finish before retrying")
     if any(
@@ -839,30 +878,28 @@ async def retry_failed_agent(analysis_id: str, agent_key: str):
         asyncio.create_task(retry_agent_and_summary(analysis_id, agent_key))
     return {"analysis_id": analysis_id, "agent": agent_key, "status": "retrying"}
 
-@app.get("/api/result/{analysis_id}")
-async def get_analysis_result(analysis_id: str):
+@app.get("/api/result/{analysis_id}", response_model=AnalysisReport | None, response_model_exclude_unset=True,
+         responses={**TASK_ERRORS, 400: {"model": ApiError}})
+async def get_analysis_result(session: AnalysisStatus = Depends(require_owned_analysis)):
     """Get the full result of a completed analysis"""
-    if analysis_id not in analysis_sessions:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-
-    session = analysis_sessions[analysis_id]
 
     if session.status not in {"completed", "degraded"}:
         raise HTTPException(status_code=400, detail=f"Analysis not completed. Current status: {session.status}")
 
     return session.result
 
-@app.get("/api/report-pdf/{analysis_id}")
-async def download_report_pdf(analysis_id: str):
+@app.get("/api/report-pdf/{analysis_id}", response_class=FileResponse, responses={
+    **TASK_ERRORS,
+    200: {"content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}}},
+    206: {"content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}}},
+    400: {"model": ApiError}, 404: {"model": PdfError}, 500: {"model": PdfError},
+})
+async def download_report_pdf(session: AnalysisStatus = Depends(require_owned_analysis)):
     """Download the PDF report for a completed analysis.
 
     Only complete PDFs are published. Distinguish a failed build from a pending
     background job so the frontend can stop polling on missing tools or TeX errors.
     """
-    if analysis_id not in analysis_sessions:
-        raise HTTPException(status_code=404, detail="Analysis not found")
-
-    session = analysis_sessions[analysis_id]
 
     if session.status not in {"completed", "degraded"}:
         raise HTTPException(status_code=400, detail=f"Analysis not completed. Current status: {session.status}")
@@ -879,9 +916,14 @@ async def download_report_pdf(analysis_id: str):
     # reports/md/xxx.md -> reports/pdf/xxx.pdf (shared helper)
     pdf_path = derive_pdf_path(report_path)
 
-    if not os.path.exists(pdf_path):
-        status = get_pdf_status(report_path)
-        raise HTTPException(status_code=500 if status["status"] == "failed" else 404, detail=status)
+    if not os.path.isfile(pdf_path):
+        status = get_pdf_status(report_path)["status"]
+        if status == "failed":
+            raise HTTPException(500, {"status": "failed", "message": "PDF 生成失败，请在本机检查 Pandoc 与 XeLaTeX/Tectonic 日志。"})
+        if status == "pending":
+            raise HTTPException(404, {"status": "pending", "message": "PDF 正在生成。"})
+        if not os.path.isfile(pdf_path):
+            raise HTTPException(404, {"status": "unavailable", "message": "PDF 文件不可用。"})
 
     # Generate a user-friendly filename
     company_name = (session.result and session.result.get("company_name", "")) or "report"
@@ -896,13 +938,14 @@ async def download_report_pdf(analysis_id: str):
         filename=download_name
     )
 
-@app.get("/api/history")
-async def get_analysis_history():
+@app.get("/api/history", response_model=AnalysisHistory, responses=SESSION_ERRORS)
+async def get_analysis_history(principal: ActiveSession = Depends(require_session)):
     """Get list of recent analyses (including running tasks)"""
     history = []
-    for analysis_id, session in list(analysis_sessions.items())[-10:]:  # Last 10
+    owned = [session for session in analysis_sessions.values() if session.owner_id == principal.user_id]
+    for session in owned[-10:]:
         entry = {
-            "analysis_id": analysis_id,
+            "analysis_id": session.analysis_id,
             "company_name": (session.result and session.result.get("company_name")) or session.company_name or session.query or "Unknown",
             "stock_code": (session.result and session.result.get("stock_code")) or "",
             "analysis_date": (session.result and session.result.get("analysis_date")) or session.start_time or "",
@@ -913,14 +956,16 @@ async def get_analysis_history():
 
     return {"history": history}
 
-@app.delete("/api/history/{analysis_id}", dependencies=[Depends(require_local_history_access)])
-@app.delete("/api/analysis/{analysis_id}", dependencies=[Depends(require_local_history_access)])
-async def delete_analysis_history(analysis_id: str):
-    """Delete a historical analysis session and its generated report files."""
-    if analysis_id not in analysis_sessions:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+LOCAL_DELETE = [Depends(require_local_history_access), Depends(require_session_write)]
 
-    session = analysis_sessions[analysis_id]
+
+@app.delete("/api/history/{analysis_id}", dependencies=LOCAL_DELETE, response_model=AnalysisDeleted,
+            responses={**TASK_ERRORS, 409: {"model": ApiError}, 500: {"model": ApiError}})
+@app.delete("/api/analysis/{analysis_id}", dependencies=LOCAL_DELETE, response_model=AnalysisDeleted,
+            responses={**TASK_ERRORS, 409: {"model": ApiError}, 500: {"model": ApiError}})
+async def delete_analysis_history(session: AnalysisStatus = Depends(require_owned_analysis)):
+    """Delete a historical analysis session and its generated report files."""
+    analysis_id = session.analysis_id
     if session.status in {"running", "pending"}:
         raise HTTPException(status_code=409, detail="分析任务正在进行中，无法删除")
 
@@ -1089,7 +1134,7 @@ async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "FINEX API"}
 
-@app.get("/api/market-kline")
+@app.get("/api/market-kline", response_model=IndexMarketResponse | MarketError, response_model_exclude_unset=True)
 async def market_kline(days: int = 120):
     """返回上证指数（sh.000001）真实历史日 K 线数据。
 
@@ -1148,7 +1193,7 @@ async def market_kline(days: int = 120):
         return {"ok": False, "error": str(e)}
 
 
-@app.get("/api/stock-market")
+@app.get("/api/stock-market", response_model=StockMarketResponse | MarketError, response_model_exclude_unset=True)
 async def stock_market(code: str, days: int = 120, frequency: str = "d"):
     """Return real, end-of-day K-line data for one A-share stock."""
     if days < 20 or days > 500:
@@ -1224,4 +1269,4 @@ if frontend_dir.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8100)
+    uvicorn.run(app, host="127.0.0.1", port=8100)

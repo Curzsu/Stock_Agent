@@ -7,6 +7,8 @@ async function mockApi(page: Page, handle: (route: Route, path: string) => Promi
       await route.fulfill({ json: { ok: false, error: '离线测试' } });
     } else if (path === '/api/history') {
       await route.fulfill({ json: { history: [] } });
+    } else if (path === '/api/session') {
+      await route.fulfill({ json: { user_id: 'fixture', username: 'alice', csrf_token: 'fixture-csrf' } });
     } else {
       await handle(route, path);
     }
@@ -29,6 +31,7 @@ test('submits the old search form and resumes partial progress at the task URL',
     if (path === '/api/analyze') {
       creates += 1;
       expect(route.request().method()).toBe('POST');
+      expect(route.request().headers()['x-csrf-token']).toBe('fixture-csrf');
       expect(route.request().postDataJSON()).toEqual({ query: '600519' });
       await route.fulfill({ json: { analysis_id: 'research-1' } });
     } else if (path === '/api/status/research-1') {

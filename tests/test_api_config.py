@@ -16,6 +16,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch, MagicMock, AsyncMock
+from uuid import uuid4
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -167,6 +168,8 @@ class TestPostApiConfig(unittest.TestCase):
     def test_running_analysis_keeps_original_provider_when_profile_changes(self):
         from src.utils.api_settings import current_api_settings
 
+        principal = self.server.ActiveSession(uuid4(), "fixture", "offline-session")
+
         async def scenario():
             entered = asyncio.Event()
             switched = asyncio.Event()
@@ -188,10 +191,10 @@ class TestPostApiConfig(unittest.TestCase):
                 api_key="b-key", base_url="https://b.example/v1", model="b-model")
             with patch.object(self.server, "run_analysis_workflow", side_effect=analyze):
                 await self.server.save_api_profile("A", a, activate=True)
-                await self.server.start_analysis(self.server.AnalyzeRequest(query="600900"))
+                await self.server.start_analysis(self.server.AnalyzeRequest(query="600900"), principal)
                 await asyncio.wait_for(entered.wait(), timeout=2)
                 await self.server.save_api_profile("B", b, activate=True)
-                await self.server.start_analysis(self.server.AnalyzeRequest(query="600900 B"))
+                await self.server.start_analysis(self.server.AnalyzeRequest(query="600900 B"), principal)
                 switched.set()
                 await asyncio.wait_for(done.wait(), timeout=2)
             self.assertEqual(seen, {"600900": ("a-model", "a-model"), "600900 B": ("b-model", "b-model")})

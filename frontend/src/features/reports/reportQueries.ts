@@ -1,15 +1,9 @@
 import { queryOptions } from '@tanstack/react-query';
 import { getJson, HttpError } from '../../shared/api/getJson';
-import type { PartialResults } from '../analysis/partialQuery';
+import type { components } from '../../shared/api/schema';
 import type { Agent } from '../analysis/progress';
 
-export type ReportResult = PartialResults & {
-  company_name?: string;
-  stock_code?: string;
-  analysis_date?: string;
-  final_report?: string;
-  missing_dimensions?: string[];
-};
+export type ReportResult = components['schemas']['AnalysisReport'];
 
 export const reportKey = (id: string) => ['analysis', id, 'result'] as const;
 export const pdfKey = (id: string) => ['analysis', id, 'pdf'] as const;
@@ -24,7 +18,7 @@ export function reportQuery(id: string) {
     queryKey: reportKey(id),
     queryFn: async ({ signal }) => {
       const deadline = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
-      const result = await getJson<ReportResult>(`/api/result/${encodeURIComponent(id)}`, deadline);
+      const result = await getJson<ReportResult | null>(`/api/result/${encodeURIComponent(id)}`, deadline);
       if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('报告响应格式无效');
       return result;
     },

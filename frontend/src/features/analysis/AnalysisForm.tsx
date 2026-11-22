@@ -1,7 +1,8 @@
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
-import { requestJson } from '../../shared/api/getJson';
+import type { components } from '../../shared/api/schema';
+import { requestSessionWrite } from '../../shared/api/session';
 import styles from './AnalysisForm.module.css';
 
 const examples = ['茅台', '600519', '比亚迪', '宁德时代'];
@@ -14,10 +15,11 @@ function validate(query: string) {
 }
 
 async function createAnalysis({ query, signal }: { query: string; signal: AbortSignal }) {
-  const result = await requestJson<{ analysis_id?: string }>('/api/analyze', {
+  const body: components['schemas']['AnalyzeRequest'] = { query };
+  const result = await requestSessionWrite<components['schemas']['AnalysisCreated']>('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify(body),
     signal,
   });
   if (typeof result?.analysis_id !== 'string' || !result.analysis_id.trim()) throw new Error('启动分析失败');

@@ -1,8 +1,10 @@
 # Web Server
-fastapi>=0.100.0
+fastapi==0.135.1
 uvicorn[standard]>=0.22.0
 python-multipart>=0.0.6
-pydantic>=2.0.0
+pydantic==2.12.5
+psycopg[binary]>=3.2,<4
+pwdlib[argon2]>=0.3,<1
 
 # LangChain and LangGraph
 langgraph>=1.1.0

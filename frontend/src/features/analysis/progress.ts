@@ -1,23 +1,13 @@
+import type { components } from '../../shared/api/schema';
+
 export const AGENTS = ['fundamental', 'technical', 'value', 'news', 'summary'] as const;
 export type Agent = typeof AGENTS[number];
-export type AgentStatus = 'waiting' | 'running' | 'completed' | 'failed';
-export type AgentDetail = {
-  status?: AgentStatus;
-  summary?: string;
-  error?: string | null;
-  execution_time_ms?: number | null;
-  result_available?: boolean;
-};
-export type AnalysisSnapshot = {
-  status?: 'pending' | 'running' | 'completed' | 'degraded' | 'error';
+type StatusResponse = components['schemas']['AnalysisStatusResponse'];
+export type AgentStatus = components['schemas']['AgentDetail']['status'];
+export type AgentDetail = Partial<components['schemas']['AgentDetail']>;
+export type AnalysisSnapshot = Partial<Omit<StatusResponse, 'progress' | 'agent_details'>> & {
   progress?: Partial<Record<Agent, AgentStatus>>;
   agent_details?: Partial<Record<Agent, AgentDetail>>;
-  current_task?: string | null;
-  company_name?: string | null;
-  stock_code?: string | null;
-  start_time?: string | null;
-  end_time?: string | null;
-  error?: string | null;
 };
 
 const runningSummaries: Record<Agent, string> = {
