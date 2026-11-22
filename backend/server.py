@@ -14,10 +14,12 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 import re
+import shutil
 import tempfile
+from contextlib import asynccontextmanager
 from ipaddress import ip_address
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, Literal
+from datetime import date, datetime, timedelta
+from typing import Annotated, Optional, Dict, Any, Literal
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -27,7 +29,7 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "agents"))
 
 import asyncio
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
@@ -38,7 +40,7 @@ import baostock as bs
 
 # Import agent system components
 from dotenv import dotenv_values, load_dotenv
-from src.utils.api_settings import API_ENV_KEYS, ApiSettings, current_api_settings, use_api_settings
+from src.utils.api_settings import API_ENV_KEYS, ApiSettings, current_api_settings, current_summary_mode, use_api_settings
 # Load .env from agents folder
 env_path = Path(__file__).parent.parent / "agents" / ".env"
 load_dotenv(env_path, override=True)
@@ -71,6 +73,7 @@ from src.utils.stock_extractor import extract_stock_info, COMPANY_CODE_MAP
 from src.utils.agent_output import require_analysis_text
 from backend.market_data import fetch_stock_market
 from backend.accounts import SESSION_ERRORS, ActiveSession, require_session, require_session_write, router as session_router
+from backend.tasks import ACTIVE_STATUSES, RunnerReplaced, TaskDatabaseError, TaskStore
 from backend.api_models import (
     AnalysisCreated, AnalysisDeleted, AnalysisHistory, AnalysisPartial, AnalysisReport,
     AnalysisRetry, AnalysisStatusResponse, ApiError, IndexMarketResponse, MarketError,
@@ -103,10 +106,44 @@ BAOSTOCK_TIMEOUT_SECONDS = float(os.getenv("BAOSTOCK_TIMEOUT_SECONDS", "30"))
 # FastAPI Application Setup
 # ============================================================================
 
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    store = TaskStore.from_environment() if os.getenv("DATABASE_URL") else None
+    runner = None
+    started = False
+    try:
+        if store is not None:
+            runner = await asyncio.to_thread(store.claim_runner)
+            pending_cleanup = await asyncio.to_thread(store.recover)
+            for entry in pending_cleanup:
+                try:
+                    await asyncio.to_thread(store.finish_cleanup, entry["owner_id"], entry["id"], delete_task_directory)
+                except HTTPException:
+                    print(f"Warning: unfinished report cleanup for {entry['id']}")
+        application.state.task_store = store
+        started = True
+        yield
+    finally:
+        try:
+            if started:
+                if pending_admissions:
+                    await asyncio.gather(*pending_admissions, return_exceptions=True)
+                jobs = tuple(managed_jobs)
+                for job in jobs:
+                    job.cancel()
+                await asyncio.gather(*jobs, return_exceptions=True)
+                application.state.task_store = None
+                await _shutdown_cleanup_mcp()
+        finally:
+            if runner is not None:
+                await asyncio.to_thread(runner.close)
+
+
 app = FastAPI(
     title="FINEX API",
     description="Financial Analysis AI Agent System API",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Browser sessions use the same-origin API, including behind the Vite proxy.
@@ -138,7 +175,6 @@ async def validate_request_response(request: Request, exc: RequestValidationErro
     return await request_validation_exception_handler(request, exc)
 
 
-@app.on_event("shutdown")
 async def _shutdown_cleanup_mcp():
     """应用关停时统一清理 MCP 客户端缓存状态。
 
@@ -329,8 +365,7 @@ async def retry_agent_and_summary(
     summarizer=None,
 ) -> None:
     session = analysis_sessions[analysis_id]
-    state = AgentState(messages=[], data=session.initial_data,
-                       metadata={"analysis_id": analysis_id, "retry": agent_key})
+    state = AgentState(messages=[], data=session.initial_data, metadata=report_metadata_for(session, retry=agent_key))
     async with research_scope():
         with analysis_trace(state, operation="retry") as run:
             await _retry_agent_and_summary(analysis_id, agent_key, selected_agent, summarizer)
@@ -357,7 +392,7 @@ async def _retry_agent_and_summary(
             state = AgentState(
                 messages=[],
                 data={**session.initial_data, **session.partial_results},
-                metadata={"analysis_id": analysis_id, "retry": agent_key},
+                metadata=report_metadata_for(session, retry=agent_key),
             )
             if session.agent_details[agent_key]["status"] != "running":
                 mark_agent_status(session, agent_key, "running")
@@ -366,6 +401,7 @@ async def _retry_agent_and_summary(
             if session.agent_details[agent_key]["status"] == "failed":
                 finish_analysis_session(session)
                 return
+            await checkpoint_analysis(session)
 
         summary_data = {**session.initial_data, **session.partial_results}
         for key in RETRYABLE_AGENTS:
@@ -375,10 +411,11 @@ async def _retry_agent_and_summary(
         summary_state = AgentState(
             messages=[],
             data=summary_data,
-            metadata={"analysis_id": analysis_id, "retry": agent_key},
+            metadata=report_metadata_for(session, retry=agent_key),
         )
         active_agent = "summary"
         mark_agent_status(session, "summary", "running")
+        await checkpoint_analysis(session)
         summary_result = await invoke_agent(summary_fn, summary_state, "summary")
         record_agent_result(session, "summary", summary_result)
         rebuild_session_result(session, (summary_result or {}).get("data", {}))
@@ -427,6 +464,9 @@ class AnalysisStatus(BaseModel):
     initial_data: Dict[str, Any] = Field(default_factory=dict)
     api_profile: Optional[str] = None
     _api_settings: ApiSettings = PrivateAttr(default_factory=current_api_settings)
+    _summary_mode: str = PrivateAttr(default_factory=current_summary_mode)
+    _store: TaskStore | None = PrivateAttr(default=None)
+    _checkpoint_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 
 
 class ApiConfigRequest(BaseModel):
@@ -539,12 +579,168 @@ def _env_assignment(key: str, value: str) -> str:
 # ============================================================================
 
 analysis_sessions: Dict[str, AnalysisStatus] = {}
-TASK_ERRORS = {**SESSION_ERRORS, 404: {"model": ApiError}}
+managed_jobs: set[asyncio.Task] = set()
+pending_admissions: set[asyncio.Task] = set()
+STORAGE_ERRORS = {**SESSION_ERRORS, 500: {"model": ApiError}}
+TASK_ERRORS = {**STORAGE_ERRORS, 404: {"model": ApiError}}
+ADMISSION_ERRORS = {409: {"model": ApiError}, 429: {"model": ApiError}}
+
+
+def get_task_store(request: Request) -> TaskStore:
+    store = getattr(request.app.state, "task_store", None)
+    if store is None:
+        raise HTTPException(503, "任务数据库未配置或服务尚未就绪")
+    return store
+
+
+TaskStorage = Annotated[TaskStore | None, Depends(get_task_store)]
+
+
+def public_analysis_error(session: AnalysisStatus) -> str | None:
+    error = session.error
+    if error and error.startswith("汇总报告生成失败"):
+        return "汇总报告生成失败，可重试汇总（已完成的分析会保留）。"
+    if error and error.startswith("行情数据服务（baostock）"):
+        return error.partition("：")[0]
+    return error
+
+
+def public_agent_details(session: AnalysisStatus) -> dict:
+    return {
+        key: {**detail, "error": "该维度未取得有效结果，可在研究结束后重试。" if detail.get("error") else None}
+        for key, detail in session.agent_details.items()
+    }
+
+
+def task_snapshot(session: AnalysisStatus) -> dict:
+    snapshot = session.model_dump(mode="json", exclude={"analysis_id", "owner_id", "status"})
+    snapshot.update(error=public_analysis_error(session), agent_details=public_agent_details(session))
+    if snapshot["result"] is not None:
+        for key in ("report_path", "pdf_path", "pdf_available", "pdf_status"):
+            snapshot["result"].pop(key, None)
+    return snapshot
+
+
+async def task_db_call(call, *args):
+    """Let an in-flight transaction finish before releasing the executor on shutdown."""
+    transaction = asyncio.create_task(asyncio.to_thread(call, *args))
+    try:
+        return await asyncio.shield(transaction)
+    except asyncio.CancelledError:
+        await asyncio.gather(transaction, return_exceptions=True)
+        raise
+
+
+async def checkpoint_analysis(session: AnalysisStatus, report=None):
+    if session._store is not None:
+        async with session._checkpoint_lock:
+            await task_db_call(session._store.checkpoint, session.analysis_id, session.owner_id, session.status,
+                               task_snapshot(session), report)
+
+
+def report_state(markdown_path: str) -> str:
+    pdf = Path(derive_pdf_path(markdown_path))
+    if pdf.is_file() and pdf.stat().st_size:
+        return "ready"
+    if is_pdf_generation_running(markdown_path):
+        return "pending"
+    return "failed" if get_pdf_status(markdown_path)["status"] == "failed" else "unavailable"
+
+
+def publish_report_metadata(session: AnalysisStatus):
+    if session.status not in {"completed", "degraded"} or not session.result:
+        return None
+    report_path = session.result.get("report_path")
+    if not report_path:
+        return None
+    store = session._store
+    report_date = session.result.get("analysis_date") or None
+    return (
+        session.result.get("stock_code", ""), date.fromisoformat(report_date) if report_date is not None else None,
+        store.relative_path(session.analysis_id, report_path),
+        store.relative_path(session.analysis_id, derive_pdf_path(report_path)), report_state(report_path),
+    )
+
+
+async def retry_database_write(call, *args):
+    while True:
+        try:
+            return await call(*args)
+        except TaskDatabaseError as exc:
+            if not exc.retryable:
+                raise
+            await asyncio.sleep(1)
+
+
+async def run_managed_job(session: AnalysisStatus, operation, *args):
+    report = None
+    try:
+        try:
+            with use_api_settings(session._api_settings, summary_mode=session._summary_mode):
+                await asyncio.wait_for(operation(session.analysis_id, *args),
+                                       timeout=WORKFLOW_TIMEOUT_SECONDS + 2 * BAOSTOCK_TIMEOUT_SECONDS)
+            if session.status in ACTIVE_STATUSES:
+                raise RuntimeError("研究流程未返回终态")
+            report = publish_report_metadata(session)
+        except Exception as exc:
+            print(f"Warning: analysis {session.analysis_id} failed ({type(exc).__name__})")
+            session.status = "error"
+            session.error = "研究执行失败，请查看本机服务日志后重试。"
+            session.end_time = datetime.now().isoformat()
+            session.current_task = None
+        try:
+            await retry_database_write(checkpoint_analysis, session, report)
+        except TaskDatabaseError as exc:
+            print(f"Warning: analysis {session.analysis_id} publication failed ({type(exc.__cause__).__name__})")
+            await retry_database_write(task_db_call, session._store.fail_checkpoint, session.analysis_id, session.owner_id)
+            return
+    except RunnerReplaced:
+        return
+    finally:
+        if analysis_sessions.get(session.analysis_id) is session:
+            analysis_sessions.pop(session.analysis_id)
+
+    if report is not None and report[-1] == "pending":
+        markdown_path = str(session._store.artifact_path(session.analysis_id, report[2]))
+        while is_pdf_generation_running(markdown_path):
+            await asyncio.sleep(0.5)
+        try:
+            await retry_database_write(task_db_call, session._store.update_pdf, session.analysis_id,
+                                       report[2], report_state(markdown_path))
+        except RunnerReplaced:
+            return
+
+
+def launch_job(session: AnalysisStatus, operation, *args):
+    analysis_sessions[session.analysis_id] = session
+    if session._store is None:
+        with use_api_settings(session._api_settings, summary_mode=session._summary_mode):
+            asyncio.create_task(operation(session.analysis_id, *args))
+        return
+    task = asyncio.create_task(run_managed_job(session, operation, *args))
+    managed_jobs.add(task)
+    task.add_done_callback(managed_jobs.discard)
+
+
+async def complete_admission(operation):
+    task = asyncio.create_task(operation)
+    pending_admissions.add(task)
+    task.add_done_callback(pending_admissions.discard)
+    return await asyncio.shield(task)
+
+
+def report_metadata_for(session: AnalysisStatus, **extra) -> dict:
+    metadata = {"analysis_id": session.analysis_id, **extra}
+    if session._store is not None:
+        metadata["report_dir"] = str(session._store.task_directory(session.analysis_id))
+    return metadata
 
 
 async def require_owned_analysis(
-    analysis_id: str, principal: ActiveSession = Depends(require_session),
+    analysis_id: str, principal: Annotated[ActiveSession, Depends(require_session)], store: TaskStorage,
 ) -> AnalysisStatus:
+    if store is not None:
+        return AnalysisStatus.model_validate(await task_db_call(store.get, principal.user_id, analysis_id))
     session = analysis_sessions.get(analysis_id)
     if session is None or session.owner_id != principal.user_id:
         raise HTTPException(status_code=404, detail="Analysis not found")
@@ -598,6 +794,7 @@ async def run_analysis_workflow(analysis_id: str, query: str):
     session.start_time = datetime.now().isoformat()
 
     try:
+        await checkpoint_analysis(session)
         # Extract stock info
         company_name, stock_code = extract_stock_info(query)
         session.company_name = company_name or query
@@ -695,15 +892,17 @@ async def run_analysis_workflow(analysis_id: str, query: str):
         initial_state = AgentState(
             messages=[],
             data=initial_data,
-            metadata={"analysis_id": analysis_id}
+            metadata=report_metadata_for(session)
         )
 
         # Build workflow（共享工厂，与 main.py 共用同一拓扑）
         async def _progress_cb(agent_key, status):
             mark_agent_status(session, agent_key, status)
+            await checkpoint_analysis(session)
 
         async def _result_cb(agent_key, result):
             record_agent_result(session, agent_key, result)
+            await checkpoint_analysis(session)
 
         app_workflow = build_workflow(
             fundamental_agent=fundamental_agent,
@@ -723,6 +922,7 @@ async def run_analysis_workflow(analysis_id: str, query: str):
             "news": "running",
             "summary": "waiting"
         }
+        await checkpoint_analysis(session)
 
         # Execute workflow
         # 加总超时兜底：即使某个环节（LLM 调用、MCP/baostock 工具、ReAct 死循环）
@@ -777,8 +977,11 @@ async def serve_frontend():
         return HTMLResponse(content=frontend_path.read_text(encoding="utf-8"))
     raise HTTPException(status_code=404, detail="Frontend not found")
 
-@app.post("/api/analyze", response_model=AnalysisCreated, responses=SESSION_ERRORS)
-async def start_analysis(request: AnalyzeRequest, principal: ActiveSession = Depends(require_session_write)):
+@app.post("/api/analyze", response_model=AnalysisCreated, responses={**STORAGE_ERRORS, **ADMISSION_ERRORS})
+async def start_analysis(
+    request: AnalyzeRequest, principal: ActiveSession = Depends(require_session_write), store: TaskStorage = None,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", pattern=r"^[!-~]{1,128}$")] = None,
+):
     """Start a new analysis task"""
     analysis_id = uuid4().hex
 
@@ -798,17 +1001,22 @@ async def start_analysis(request: AnalyzeRequest, principal: ActiveSession = Dep
         api_profile=active_profile(),
     )
 
-    analysis_sessions[analysis_id] = session
+    async def admit():
+        if store is not None:
+            task_id, created = await task_db_call(
+                store.create, analysis_id, principal.user_id, idempotency_key, request.query, task_snapshot(session),
+                session.api_profile, (*session._api_settings, session._summary_mode),
+            )
+            if not created:
+                return task_id
+            session._store = store
+        launch_job(session, run_analysis_workflow, request.query)
+        return analysis_id
 
-    # 用 asyncio.create_task 在事件循环上并发调度,而非 BackgroundTasks。
-    # BackgroundTasks 会在响应发送后 await 该协程,期间阻塞事件循环,
-    # 导致 /api/status 轮询请求无法被处理(服务器看起来"卡住")。
-    # create_task 让工作流与请求处理并发执行,轮询能正常响应。
-    with use_api_settings(session._api_settings):
-        asyncio.create_task(run_analysis_workflow(analysis_id, request.query))
+    persisted_id = await complete_admission(admit()) if store is not None else await admit()
 
     return {
-        "analysis_id": analysis_id,
+        "analysis_id": persisted_id,
         "status": "started",
         "message": f"Analysis started for: {request.query}"
     }
@@ -816,22 +1024,14 @@ async def start_analysis(request: AnalyzeRequest, principal: ActiveSession = Dep
 @app.get("/api/status/{analysis_id}", response_model=AnalysisStatusResponse, responses=TASK_ERRORS)
 async def get_analysis_status(session: AnalysisStatus = Depends(require_owned_analysis)):
     """Get the current status of an analysis"""
-    error = session.error
-    if error and session.agent_details["summary"]["status"] == "failed":
-        error = "汇总报告生成失败，可重试汇总（已完成的分析会保留）。"
-    elif error and error.startswith("行情数据服务（baostock）"):
-        error = error.partition("：")[0]
     return {
         "analysis_id": session.analysis_id,
         "status": session.status,
         "progress": session.progress,
         "start_time": session.start_time,
         "end_time": session.end_time,
-        "error": error,
-        "agent_details": {
-            key: {**detail, "error": "该维度未取得有效结果，可在研究结束后重试。" if detail.get("error") else None}
-            for key, detail in session.agent_details.items()
-        },
+        "error": public_analysis_error(session),
+        "agent_details": public_agent_details(session),
         "current_task": session.current_task,
         "company_name": session.company_name,
         "stock_code": session.initial_data.get("stock_code"),
@@ -845,14 +1045,9 @@ async def get_partial_results(session: AnalysisStatus = Depends(require_owned_an
     return {"analysis_id": session.analysis_id, "results": session.partial_results}
 
 
-@app.post("/api/analysis/{analysis_id}/retry/{agent_key}", status_code=202, response_model=AnalysisRetry,
-          dependencies=[Depends(require_session_write)],
-          responses={**TASK_ERRORS, 409: {"model": ApiError}, 422: {"model": ApiError}})
-async def retry_failed_agent(agent_key: str, session: AnalysisStatus = Depends(require_owned_analysis)):
-    """Schedule a retry for one failed analysis dimension."""
+def prepare_analysis_retry(session: AnalysisStatus, agent_key: str) -> None:
     if agent_key not in {*RETRYABLE_AGENTS, "summary"}:
         raise HTTPException(status_code=422, detail="Unknown analysis agent")
-    analysis_id = session.analysis_id
     if session.status not in {"completed", "degraded", "error"}:
         raise HTTPException(status_code=409, detail="Wait for the current workflow to finish before retrying")
     if any(
@@ -874,8 +1069,35 @@ async def retry_failed_agent(agent_key: str, session: AnalysisStatus = Depends(r
     session.status = "running"
     session.error = None
     session.end_time = None
-    with use_api_settings(session._api_settings):
-        asyncio.create_task(retry_agent_and_summary(analysis_id, agent_key))
+
+
+@app.post("/api/analysis/{analysis_id}/retry/{agent_key}", status_code=202, response_model=AnalysisRetry,
+          responses={**TASK_ERRORS, **ADMISSION_ERRORS, 422: {"model": ApiError}})
+async def retry_failed_agent(
+    analysis_id: str, agent_key: str, principal: Annotated[ActiveSession, Depends(require_session_write)],
+    store: TaskStorage,
+):
+    """Reserve capacity and retry a failed dimension using its original model settings."""
+    def prepare(data):
+        session = AnalysisStatus.model_validate(data)
+        prepare_analysis_retry(session, agent_key)
+        return session, task_snapshot(session)
+
+    async def admit():
+        if store is None:
+            session = await require_owned_analysis(analysis_id, principal, store)
+            prepare_analysis_retry(session, agent_key)
+        else:
+            session, settings = await task_db_call(store.retry, principal.user_id, analysis_id, prepare)
+            session._store = store
+            secret, url, model, session._summary_mode = settings
+            session._api_settings = ApiSettings(secret, url, model)
+        launch_job(session, retry_agent_and_summary, agent_key)
+
+    if store is None:
+        await admit()
+    else:
+        await complete_admission(admit())
     return {"analysis_id": analysis_id, "agent": agent_key, "status": "retrying"}
 
 @app.get("/api/result/{analysis_id}", response_model=AnalysisReport | None, response_model_exclude_unset=True,
@@ -916,13 +1138,13 @@ async def download_report_pdf(session: AnalysisStatus = Depends(require_owned_an
     # reports/md/xxx.md -> reports/pdf/xxx.pdf (shared helper)
     pdf_path = derive_pdf_path(report_path)
 
-    if not os.path.isfile(pdf_path):
-        status = get_pdf_status(report_path)["status"]
+    if not os.path.isfile(pdf_path) or not os.path.getsize(pdf_path):
+        status = session.result.get("pdf_status") or get_pdf_status(report_path)["status"]
         if status == "failed":
             raise HTTPException(500, {"status": "failed", "message": "PDF 生成失败，请在本机检查 Pandoc 与 XeLaTeX/Tectonic 日志。"})
         if status == "pending":
             raise HTTPException(404, {"status": "pending", "message": "PDF 正在生成。"})
-        if not os.path.isfile(pdf_path):
+        if not os.path.isfile(pdf_path) or not os.path.getsize(pdf_path):
             raise HTTPException(404, {"status": "unavailable", "message": "PDF 文件不可用。"})
 
     # Generate a user-friendly filename
@@ -938,9 +1160,11 @@ async def download_report_pdf(session: AnalysisStatus = Depends(require_owned_an
         filename=download_name
     )
 
-@app.get("/api/history", response_model=AnalysisHistory, responses=SESSION_ERRORS)
-async def get_analysis_history(principal: ActiveSession = Depends(require_session)):
+@app.get("/api/history", response_model=AnalysisHistory, responses=STORAGE_ERRORS)
+async def get_analysis_history(principal: Annotated[ActiveSession, Depends(require_session)], store: TaskStorage):
     """Get list of recent analyses (including running tasks)"""
+    if store is not None:
+        return {"history": await task_db_call(store.history, principal.user_id)}
     history = []
     owned = [session for session in analysis_sessions.values() if session.owner_id == principal.user_id]
     for session in owned[-10:]:
@@ -956,16 +1180,38 @@ async def get_analysis_history(principal: ActiveSession = Depends(require_sessio
 
     return {"history": history}
 
-LOCAL_DELETE = [Depends(require_local_history_access), Depends(require_session_write)]
+LOCAL_DELETE = [Depends(require_local_history_access)]
+
+
+def require_idle_report_files(directory: Path):
+    if any(is_pdf_generation_running(str(path)) for path in (directory / "md").glob("*.md")):
+        raise HTTPException(409, "PDF 正在生成中，请完成后再删除研报")
+
+
+def delete_task_directory(directory: Path):
+    try:
+        if directory.exists():
+            shutil.rmtree(directory)
+    except OSError as exc:
+        raise HTTPException(500, "任务已从历史移除，文件清理未完成。可重试删除或重启服务。") from exc
 
 
 @app.delete("/api/history/{analysis_id}", dependencies=LOCAL_DELETE, response_model=AnalysisDeleted,
-            responses={**TASK_ERRORS, 409: {"model": ApiError}, 500: {"model": ApiError}})
+            responses={**TASK_ERRORS, 409: {"model": ApiError}})
 @app.delete("/api/analysis/{analysis_id}", dependencies=LOCAL_DELETE, response_model=AnalysisDeleted,
-            responses={**TASK_ERRORS, 409: {"model": ApiError}, 500: {"model": ApiError}})
-async def delete_analysis_history(session: AnalysisStatus = Depends(require_owned_analysis)):
-    """Delete a historical analysis session and its generated report files."""
-    analysis_id = session.analysis_id
+            responses={**TASK_ERRORS, 409: {"model": ApiError}})
+async def delete_analysis_history(
+    analysis_id: str, principal: Annotated[ActiveSession, Depends(require_session_write)], store: TaskStorage,
+):
+    """Commit the authorized deletion before removing private report files."""
+    if store is not None:
+        await task_db_call(store.delete, principal.user_id, analysis_id, require_idle_report_files, delete_task_directory)
+    else:
+        delete_memory_analysis(await require_owned_analysis(analysis_id, principal, store))
+    return {"status": "deleted", "analysis_id": analysis_id, "message": "研报已成功删除"}
+
+
+def delete_memory_analysis(session: AnalysisStatus):
     if session.status in {"running", "pending"}:
         raise HTTPException(status_code=409, detail="分析任务正在进行中，无法删除")
 
@@ -991,12 +1237,7 @@ async def delete_analysis_history(session: AnalysisStatus = Depends(require_owne
     except OSError:
         raise HTTPException(status_code=500, detail="研报文件清理失败，历史记录已保留，请稍后重试")
 
-    del analysis_sessions[analysis_id]
-    return {
-        "status": "deleted",
-        "analysis_id": analysis_id,
-        "message": "研报已成功删除"
-    }
+    del analysis_sessions[session.analysis_id]
 
 ProfileId = Literal["A", "B", "C", "D", "E"]
 PROFILE_IDS = ("A", "B", "C", "D", "E")

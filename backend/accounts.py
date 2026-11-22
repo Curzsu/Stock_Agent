@@ -186,6 +186,8 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("migrate")
     commands.add_parser("create-user").add_argument("username")
+    commands.add_parser("list-model-versions")
+    commands.add_parser("revoke-model-version").add_argument("version_id", type=UUID)
     args = parser.parse_args()
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -194,12 +196,28 @@ def main() -> None:
         if args.command == "migrate":
             migrate(database_url)
             print("数据库迁移完成")
-        else:
+        elif args.command == "create-user":
             password = getpass("密码: ")
             if password != getpass("确认密码: "):
                 raise ValueError("两次密码输入不一致")
             create_user(database_url, args.username, password)
             print(f"已创建账号 {args.username.lower()}")
+        elif args.command == "list-model-versions":
+            with connect(database_url) as conn:
+                for version_id, profile, created, revoked in conn.execute(
+                    "SELECT id, profile, created_at, revoked_at FROM model_config_versions ORDER BY created_at DESC",
+                ):
+                    print(version_id, profile, created.isoformat(), "已撤销" if revoked else "可用")
+        else:
+            with connect(database_url) as conn:
+                changed = conn.execute(
+                    """UPDATE model_config_versions SET revoked_at = now(), ciphertext = NULL
+                       WHERE id = %s AND revoked_at IS NULL""",
+                    (args.version_id,),
+                ).rowcount
+            if changed != 1:
+                parser.exit(1, "找不到可撤销的配置版本\n")
+            print("已撤销模型配置版本")
     except ValueError as exc:
         parser.exit(1, f"{exc}\n")
     except psycopg.errors.UniqueViolation:

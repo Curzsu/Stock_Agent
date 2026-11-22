@@ -14,11 +14,11 @@ function validate(query: string) {
   if (!/[a-zA-Z0-9\u4e00-\u9fa5]/.test(query)) return '请输入有效的公司名称或股票代码';
 }
 
-async function createAnalysis({ query, signal }: { query: string; signal: AbortSignal }) {
+async function createAnalysis({ query, key, signal }: { query: string; key: string; signal: AbortSignal }) {
   const body: components['schemas']['AnalyzeRequest'] = { query };
   const result = await requestSessionWrite<components['schemas']['AnalysisCreated']>('/api/analyze', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
     body: JSON.stringify(body),
     signal,
   });
@@ -31,6 +31,7 @@ export function AnalysisForm() {
   const [error, setError] = useState('');
   const input = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
+  const pendingKey = useRef<string | undefined>(undefined);
   const navigate = useNavigate();
   const mutation = useMutation({ mutationFn: createAnalysis, retry: false });
   useEffect(() => () => request.current?.abort(), []);
@@ -46,13 +47,15 @@ export function AnalysisForm() {
       return;
     }
     setError('');
+    const key = pendingKey.current ??= crypto.randomUUID();
     const controller = new AbortController();
     request.current = controller;
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       void Notification.requestPermission().catch(() => undefined);
     }
     try {
-      const id = await mutation.mutateAsync({ query: value, signal: controller.signal });
+      const id = await mutation.mutateAsync({ query: value, key, signal: controller.signal });
+      pendingKey.current = undefined;
       if (!controller.signal.aborted) {
         navigate(`/app/analysis/${encodeURIComponent(id)}`, { state: { submittedQuery: value } });
       }
@@ -75,7 +78,7 @@ export function AnalysisForm() {
           autoComplete="off"
           placeholder="输入股票代码或公司名称..."
           value={query}
-          onChange={(event) => { setQuery(event.target.value); setError(''); }}
+          onChange={(event) => { pendingKey.current = undefined; setQuery(event.target.value); setError(''); }}
           disabled={mutation.isPending}
         />
         <button className={styles.submit} type="submit" aria-label="开始分析" disabled={mutation.isPending}>
@@ -89,6 +92,7 @@ export function AnalysisForm() {
         <span>示例：</span>
         {examples.map((value) => (
           <button key={value} type="button" disabled={mutation.isPending} onClick={() => {
+            if (query !== value) pendingKey.current = undefined;
             setQuery(value);
             setError('');
             input.current?.focus();

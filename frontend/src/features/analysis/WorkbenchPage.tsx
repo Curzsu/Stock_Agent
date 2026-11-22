@@ -23,6 +23,7 @@ const phaseLabels: Record<ReturnType<typeof derivePhase>, string> = {
   completed: '研究报告已完成',
   degraded: '报告已完成，部分维度待重试',
   error: '分析未完成',
+  interrupted: '研究已中断',
 };
 const statusLabels: Record<AgentStatus, string> = { waiting: '等待', running: '分析中', completed: '已完成', failed: '需要重试' };
 

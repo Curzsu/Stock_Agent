@@ -91,6 +91,9 @@ class TestPostgresAccounts(unittest.TestCase):
     def setUp(self):
         server.analysis_sessions.clear()
         self.addCleanup(server.analysis_sessions.clear)
+        overrides = patch.dict(server.app.dependency_overrides, {server.get_task_store: lambda: None})
+        overrides.start()
+        self.addCleanup(overrides.stop)
         self.alice = client()
         self.bob = client()
         self.addCleanup(self.alice.close)

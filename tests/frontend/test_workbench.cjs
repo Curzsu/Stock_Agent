@@ -641,7 +641,8 @@ test('a late analysis-start response cannot activate an obsolete query', async (
   const html = fs.readFileSync(path.join(__dirname, '../../frontend/index.html'), 'utf8');
   const csrf = html.indexOf('    async function getSessionWriteHeaders(');
   vm.runInContext(html.slice(csrf, html.indexOf('\n    }', csrf) + 6), context);
-  const start = html.indexOf('    async function startRealAnalysis(');
+  context.crypto = require('node:crypto').webcrypto;
+  const start = html.indexOf('    let pendingAnalysisSubmission');
   vm.runInContext(html.slice(start, html.indexOf('    async function loadWorkbenchMarket', start)), context);
   const polled = [];
   context.pollAnalysisStatus = () => polled.push(context.currentAnalysisId);

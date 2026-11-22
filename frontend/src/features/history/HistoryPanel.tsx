@@ -8,7 +8,7 @@ import styles from './HistoryPanel.module.css';
 type HistoryItem = components['schemas']['HistoryItem'];
 
 const labels = {
-  pending: '等待中', running: '分析中', completed: '已完成', degraded: '部分完成', error: '出错',
+  pending: '等待中', running: '分析中', completed: '已完成', degraded: '部分完成', error: '出错', interrupted: '已中断',
 };
 
 function HistoryCard({ item }: { item: HistoryItem }) {

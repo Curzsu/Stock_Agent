@@ -25,7 +25,8 @@ _pdf_tasks: dict[str, set[asyncio.Task]] = {}
 
 def is_pdf_generation_running(md_path: str) -> bool:
     """Include queued jobs, before their conversion threads have started."""
-    return any(not task.done() for task in _pdf_tasks.get(str(Path(md_path).resolve()), ()))
+    tasks = tuple(_pdf_tasks.get(str(Path(md_path).resolve()), ()))
+    return any(not task.done() for task in tasks)
 
 
 def start_pdf_generation(md_path: str, state_data: dict, **kwargs) -> asyncio.Task:

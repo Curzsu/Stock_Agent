@@ -97,6 +97,50 @@ test('shows a submission failure and waits for the user before sending another r
   expect(creates).toBe(1);
 });
 
+test('reuses the submission key after a lost response and starts a new key after editing', async ({ page }) => {
+  const keys: string[] = [];
+  await mockApi(page, async (route, path) => {
+    expect(path).toBe('/api/analyze');
+    keys.push(route.request().headers()['idempotency-key']);
+    await route.fulfill({ status: 503, json: { detail: '请求结果未知，请重试' } });
+  });
+  await page.goto('/react-preview/');
+  const input = page.getByRole('textbox');
+  const submit = page.getByRole('button', { name: '开始分析' });
+  await input.fill('600519');
+  await submit.click();
+  await expect(page.getByRole('alert')).toHaveText('请求结果未知，请重试');
+  expect(keys).toHaveLength(1);
+  expect(keys[0]).toBeTruthy();
+  await submit.click();
+  await expect.poll(() => keys.length).toBe(2);
+  expect(keys[1]).toBe(keys[0]);
+  await expect(submit).toBeEnabled();
+  await input.fill('600900');
+  await submit.click();
+  await expect.poll(() => keys.length).toBe(3);
+  expect(keys[2]).toBeTruthy();
+  expect(keys[2]).not.toBe(keys[0]);
+});
+
+test('keeps completed research visible for an interrupted task', async ({ page }) => {
+  let reads = 0;
+  await mockApi(page, async (route, path) => {
+    if (path.startsWith('/api/status/')) {
+      reads++;
+      await route.fulfill({ json: { status: 'interrupted', progress: { fundamental: 'completed' }, error: '请重新发起研究' } });
+    } else {
+      await route.fulfill({ json: { results: { fundamental_analysis: '仍可读的基本面结果' } } });
+    }
+  });
+  await page.goto('/react-preview/app/analysis/interrupted-task');
+  await expect(page.getByRole('alert')).toHaveText('请重新发起研究');
+  await page.getByText('查看阶段结果').click();
+  await expect(page.getByText('仍可读的基本面结果')).toBeVisible();
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  expect(reads).toBe(1);
+});
+
 test('falls back without Worker and refreshes immediately when the tab becomes visible', async ({ page }) => {
   await page.addInitScript(() => { Object.defineProperty(window, 'Worker', { value: undefined }); });
   let reads = 0;

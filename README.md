@@ -100,16 +100,24 @@ $env:DATABASE_URL = "postgresql://finex:${dbPasswordForUrl}@127.0.0.1:5432/finex
 docker compose up -d --wait
 python -m backend.accounts migrate
 python -m backend.accounts create-user alice
+if (-not (Select-String -LiteralPath 'agents/.env' -Pattern '^\s*FINEX_MODEL_CONFIG_KEY\s*=' -Quiet)) {
+    $modelConfigKey = python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    Add-Content -LiteralPath 'agents/.env' -Value "`nFINEX_MODEL_CONFIG_KEY=$modelConfigKey" -Encoding UTF8
+}
 python -m uvicorn backend.server:app --host 127.0.0.1 --port 8100
 ```
 
 若 `5432` 已被占用，设置 `POSTGRES_PORT` 并同步修改 `DATABASE_URL` 的端口。`create-user` 会提示设置试用账号的密码，每个账号创建一次即可。已完成数据库准备的终端也可以运行 [Windows 启动脚本](scripts/start_server.bat) 或 [Linux/macOS 启动脚本](scripts/start_server.sh)。
 
-浏览器可以打开旧首页和构建后的 React 预览进行视觉对照。第 5 阶段通过 `POST /api/session` 登录并验证研究 API，浏览器登录页安排在第 7 阶段。 [本机预览入口](docs/frontend-migration-plan.md#阶段-1--独立入口)
+浏览器可以打开旧首页和构建后的 React 预览进行视觉对照。通过 `POST /api/session` 登录后可以使用研究 API，浏览器登录页安排在第 7 阶段。 [本机预览入口](docs/frontend-migration-plan.md#阶段-1--独立入口)
 
-从首页打开「配置 API Key」，可在 A–E 页签分别保存 API Key、Base URL 和 Model。已有配置默认归入 A。点击「启用」后，新发起的研究使用所选配置，已经发起的研究和它的重试继续使用启动时的配置，无需重启服务。历史记录会标明使用的配置。
+从首页打开「配置 API Key」，可在 A–E 页签分别保存 API Key、Base URL 和 Model。已有配置默认归入 A。点击「启用」后，新发起的研究使用所选配置。重试读取任务启动时的加密配置版本，历史记录会标明使用的配置。请保留 `FINEX_MODEL_CONFIG_KEY`，与数据库备份分开保管。可用 `python -m backend.accounts list-model-versions` 列出版本，用 `python -m backend.accounts revoke-model-version <版本ID>` 撤销指定版本。
 
 页面中的 API 配置仅允许通过本机 `localhost`、`127.0.0.1` 或 `[::1]` 修改。更换 Base URL 时需重新填写对应密钥。五套配置及启用状态保存在本机 `agents/.env` 中，请勿提交该文件。
+
+任务和报告索引保存在 PostgreSQL，Markdown 和 PDF 默认写入 `agents/reports/workbench/<任务ID>/`。可用 `FINEX_REPORT_DIR` 指定专用持久目录。原有未关联账号的文件可在本机归档中查找。已完成任务重启后可以继续查看，运行中或排队的任务会标记为中断并保留完成的片段。
+
+本机使用单个 FastAPI 执行进程。新建任务与维度重试共用并发上限，默认每账号 1 个、全局 3 个，可通过 `FINEX_MAX_USER_TASKS` 和 `FINEX_MAX_ACTIVE_TASKS` 调整。
 
 ## PDF 导出
 
@@ -198,12 +206,15 @@ POST /api/analyze
 Origin: http://127.0.0.1:8100
 Cookie: finex_session=<session-id>
 X-CSRF-Token: <csrf-token>
+Idempotency-Key: <unique-submission-id>
 Content-Type: application/json
 
 {"query": "比亚迪"}
 ```
 
 响应返回 `analysis_id`，通过 `/api/status/{analysis_id}` 查询进度，通过 `/api/result/{analysis_id}` 获取结果；健康检查为 `/api/health`。
+
+每次新研究使用新的 `Idempotency-Key`。如果提交响应丢失，手动重试时沿用同一标识和查询，服务端会返回原任务 ID。并发达到上限时返回 `429`，可稍后重试。
 
 ## 免责声明
 

@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-TaskStatus = Literal["pending", "running", "completed", "degraded", "error"]
+TaskStatus = Literal["pending", "running", "completed", "degraded", "error", "interrupted"]
 AgentStatus = Literal["waiting", "running", "completed", "failed"]
 AgentName = Literal["fundamental", "technical", "value", "news", "summary"]
 

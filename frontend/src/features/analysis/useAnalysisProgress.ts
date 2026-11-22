@@ -58,7 +58,7 @@ export function useAnalysisProgress(id: string, submitted = false) {
         if (isTerminalStatus(status)) {
           ended = true;
           stop();
-          if (sawActive && status.status !== 'error') notifyCompletion(id, status);
+          if (sawActive && (status.status === 'completed' || status.status === 'degraded')) notifyCompletion(id, status);
         } else {
           sawActive = true;
         }

@@ -24,7 +24,9 @@ class TestAnalysisSessionApi(unittest.TestCase):
     def setUp(self):
         server.analysis_sessions.clear()
         principal = server.ActiveSession(uuid4(), "fixture", "offline-session")
-        patcher = patch.dict(server.app.dependency_overrides, {server.require_session: lambda: principal})
+        patcher = patch.dict(server.app.dependency_overrides, {
+            server.require_session: lambda: principal, server.get_task_store: lambda: None,
+        })
         patcher.start()
         self.addCleanup(patcher.stop)
         self.client = TestClient(server.app, base_url="http://localhost", client=("127.0.0.1", 50000))
@@ -501,11 +503,11 @@ class TestAnalysisSessionApi(unittest.TestCase):
                 try:
                     # The queued job must block deletion even before it starts.
                     with self.assertRaises(server.HTTPException) as queued:
-                        await server.delete_analysis_history(self.session)
+                        server.delete_memory_analysis(self.session)
                     self.assertEqual(queued.exception.status_code, 409)
                     self.assertTrue(await asyncio.to_thread(entered.wait, 5))
                     with self.assertRaises(server.HTTPException) as caught:
-                        await server.delete_analysis_history(self.session)
+                        server.delete_memory_analysis(self.session)
                     self.assertEqual(caught.exception.status_code, 409)
                     self.assertTrue(report.exists())
                     self.assertIn("session1", server.analysis_sessions)
@@ -513,8 +515,7 @@ class TestAnalysisSessionApi(unittest.TestCase):
                     release.set()
                     await task
                 self.assertTrue(pdf.exists())
-                response = await server.delete_analysis_history(self.session)
-                self.assertEqual(response["status"], "deleted")
+                server.delete_memory_analysis(self.session)
                 self.assertFalse(pdf.exists())
                 self.assertFalse(report.exists())
         with tempfile.TemporaryDirectory() as directory:

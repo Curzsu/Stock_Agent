@@ -114,7 +114,7 @@ export interface paths {
         put?: never;
         /**
          * Retry Failed Agent
-         * @description Schedule a retry for one failed analysis dimension.
+         * @description Reserve capacity and retry a failed dimension using its original model settings.
          */
         post: operations["retry_failed_agent_api_analysis__analysis_id__retry__agent_key__post"];
         delete?: never;
@@ -198,7 +198,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Analysis History
-         * @description Delete a historical analysis session and its generated report files.
+         * @description Commit the authorized deletion before removing private report files.
          */
         delete: operations["delete_analysis_history_api_analysis__analysis_id__delete"];
         options?: never;
@@ -218,7 +218,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Analysis History
-         * @description Delete a historical analysis session and its generated report files.
+         * @description Commit the authorized deletion before removing private report files.
          */
         delete: operations["delete_analysis_history_api_history__analysis_id__delete"];
         options?: never;
@@ -552,7 +552,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "pending" | "running" | "completed" | "degraded" | "error";
+            status: "pending" | "running" | "completed" | "degraded" | "error" | "interrupted";
             /** Progress */
             progress: {
                 [key: string]: "waiting" | "running" | "completed" | "failed";
@@ -618,7 +618,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "pending" | "running" | "completed" | "degraded" | "error";
+            status: "pending" | "running" | "completed" | "degraded" | "error" | "interrupted";
             /** Api Profile */
             api_profile: string | null;
         };
@@ -963,6 +963,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "Idempotency-Key"?: string | null;
                 "X-CSRF-Token"?: string;
             };
             path?: never;
@@ -1001,6 +1002,15 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -1008,6 +1018,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
             /** @description Service Unavailable */
@@ -1077,6 +1105,15 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description Service Unavailable */
             503: {
                 headers: {
@@ -1144,6 +1181,15 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description Service Unavailable */
             503: {
                 headers: {
@@ -1162,8 +1208,8 @@ export interface operations {
                 "X-CSRF-Token"?: string;
             };
             path: {
-                agent_key: string;
                 analysis_id: string;
+                agent_key: string;
             };
             cookie?: never;
         };
@@ -1216,6 +1262,24 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1297,6 +1361,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
             /** @description Service Unavailable */
@@ -1433,6 +1506,15 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

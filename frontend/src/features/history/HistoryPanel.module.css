@@ -19,7 +19,7 @@
 .date { margin: 0; color: #525252; font-size: 1rem; line-height: 1.7; }
 .status { flex: none; color: var(--wb-green); font-size: 12px; }
 .status::before { content: "● "; }
-[data-status="error"] .status { color: var(--wb-red); }
+:is([data-status="error"], [data-status="interrupted"]) .status { color: var(--wb-red); }
 :is([data-status="pending"], [data-status="running"], [data-status="degraded"]) .status { color: var(--wb-gold); }
 .empty { padding: 2rem; color: var(--wb-muted); text-align: center; }
 @media (max-width: 640px) {

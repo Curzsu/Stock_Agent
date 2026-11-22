@@ -6,13 +6,14 @@ import os
 import time
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any
 import re
 from uuid import uuid4
 
 from src.utils.state_definition import AgentState
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
-from src.utils.api_settings import current_api_settings
+from src.utils.api_settings import current_api_settings, current_summary_mode
 from src.utils.execution_logger import get_execution_logger
 from src.utils.pdf_converter import start_pdf_generation
 from src.utils.agent_config import REACT_TIMEOUT_SECONDS
@@ -33,6 +34,12 @@ logger = setup_logger(__name__)
 def report_filename(prefix: str, timestamp: str) -> str:
     safe_prefix = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", prefix)[:45]
     return f"{safe_prefix}_{timestamp}_{uuid4().hex}.md"
+
+
+def report_directory(state: AgentState) -> Path:
+    task_dir = state.get("metadata", {}).get("report_dir")
+    root = Path(task_dir) if task_dir else Path(__file__).resolve().parents[2] / "reports"
+    return root / "md"
 
 
 def truncate_report_at_baseline_time(report_content: str, current_time_info: str) -> str:
@@ -171,7 +178,7 @@ def generate_report_with_finr1(model, tokenizer, prompt, max_new_tokens=5000):
 def get_model_choice():
     """获取模型选择，默认选择API"""
     # 可以通过环境变量控制模型选择
-    model_choice = os.getenv("USE_LOCAL_MODEL", "api").lower()
+    model_choice = current_summary_mode()
     return model_choice
 
 
@@ -514,8 +521,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         filename = report_filename(safe_file_prefix, timestamp)
 
         # 确保reports/md目录存在
-        reports_dir = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)))), "reports", "md")
+        reports_dir = report_directory(state)
         os.makedirs(reports_dir, exist_ok=True)
 
         report_path = os.path.join(reports_dir, filename)
@@ -610,8 +616,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         filename = report_filename(safe_file_prefix, timestamp)
 
         # 确保reports/md目录存在
-        reports_dir = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)))), "reports", "md")
+        reports_dir = report_directory(state)
         os.makedirs(reports_dir, exist_ok=True)
 
         report_path = os.path.join(reports_dir, filename)

@@ -25,6 +25,7 @@ export function derivePhase({ status, progress, agent_details }: AnalysisSnapsho
   if (status === 'completed' && !running) return 'completed';
   if (status === 'degraded' && !running) return 'degraded';
   if (status === 'error') return 'error';
+  if (status === 'interrupted') return 'interrupted';
   if (progress?.summary === 'running') return 'summarizing';
   if (running && (status === 'completed' || status === 'degraded')) return 'running';
   if (AGENTS.some((agent) => progress?.[agent] === 'completed')) return 'partial';
@@ -45,5 +46,5 @@ export function agentDetails(snapshot: AnalysisSnapshot, agent: Agent) {
 }
 
 export function isTerminalStatus(snapshot: AnalysisSnapshot) {
-  return ['completed', 'degraded', 'error'].includes(derivePhase(snapshot));
+  return ['completed', 'degraded', 'error', 'interrupted'].includes(derivePhase(snapshot));
 }
