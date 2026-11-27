@@ -1,0 +1,69 @@
+.form { width: 100%; max-width: 680px; margin-top: 2.5rem; }
+.wrapper {
+  display: flex;
+  overflow: hidden;
+  border-radius: 18px;
+  background: rgba(255,255,255,.6);
+  box-shadow: 0 8px 32px rgba(0,0,0,.08), inset 0 1px 0 rgba(255,255,255,.5);
+  backdrop-filter: blur(20px);
+  transition: background .4s ease, box-shadow .4s ease, transform .4s ease;
+}
+.wrapper:focus-within {
+  transform: translateY(-2px);
+  background: rgba(255,255,255,.75);
+  box-shadow: 0 20px 40px rgba(0,0,0,.1), 0 0 0 4px rgba(201,162,39,.1), inset 0 1px 0 rgba(255,255,255,.6);
+}
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 1.25rem 1.5rem;
+  border: 0;
+  outline: none;
+  color: #0a0a0a;
+  background: transparent;
+  font: 400 1.125rem/normal var(--wb-sans);
+}
+.input::placeholder { color: #a3a3a3; }
+.submit {
+  display: grid;
+  align-self: center;
+  flex: none;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  margin: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 13px;
+  color: #fafafa;
+  background: #0a0a0a;
+  cursor: pointer;
+  transition: background-color .2s ease, color .2s ease;
+}
+.submit:hover:not(:disabled), .submit:focus-visible { color: #0a0a0a; background: var(--gold); }
+.submit:active { transform: scale(.96); }
+.submit:disabled, .hints button:disabled { cursor: wait; opacity: .6; }
+.hints { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .75rem; margin-top: 1.25rem; }
+.hints span { color: #737373; font-size: .875rem; letter-spacing: .05em; }
+.hints button {
+  padding: .5rem 1.1rem;
+  border: 0;
+  border-radius: 999px;
+  color: #525252;
+  background: rgba(255,255,255,.6);
+  font: 400 .9375rem/normal var(--wb-sans);
+  cursor: pointer;
+  transition: color .3s ease, background-color .3s ease;
+}
+.hints button:hover:not(:disabled) { color: #fafafa; background: #0a0a0a; }
+.error, .pending { margin: .85rem 0 0; font-size: .875rem; }
+.error { color: var(--wb-red); }
+.pending { color: var(--wb-muted); }
+@media (max-width: 430px) {
+  .input { padding-inline: 1rem; font-size: 1rem; }
+  .hints { gap: .5rem; }
+  .hints button { padding-inline: .75rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wrapper, .submit, .hints button { transition: none; }
+}

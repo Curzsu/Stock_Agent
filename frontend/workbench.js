@@ -43,6 +43,7 @@
     if (payload.status === 'completed' && !running) return 'completed';
     if (payload.status === 'degraded' && !running) return 'degraded';
     if (payload.status === 'error') return 'error';
+    if (payload.status === 'interrupted') return 'interrupted';
     const values = payload.progress || {};
     if (values.summary === 'running') return 'summarizing';
     if (running && ['completed', 'degraded'].includes(payload.status)) return 'running';
@@ -378,6 +379,7 @@
       summarizing: '正在生成综合研判',
       completed: '研究报告已完成',
       degraded: '报告已完成，部分维度待重试',
+      interrupted: '研究已中断',
       error: '分析未完成',
     };
     const agentStatusLabels = {

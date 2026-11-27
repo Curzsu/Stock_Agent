@@ -6,12 +6,14 @@ import os
 import time
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any
 import re
+from uuid import uuid4
 
 from src.utils.state_definition import AgentState
 from src.utils.logging_config import setup_logger, ERROR_ICON, SUCCESS_ICON, WAIT_ICON
-from src.utils.api_settings import current_api_settings
+from src.utils.api_settings import current_api_settings, current_summary_mode
 from src.utils.execution_logger import get_execution_logger
 from src.utils.pdf_converter import start_pdf_generation
 from src.utils.agent_config import REACT_TIMEOUT_SECONDS
@@ -27,6 +29,17 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 logger = setup_logger(__name__)
+
+
+def report_filename(prefix: str, timestamp: str) -> str:
+    safe_prefix = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", prefix)[:45]
+    return f"{safe_prefix}_{timestamp}_{uuid4().hex}.md"
+
+
+def report_directory(state: AgentState) -> Path:
+    task_dir = state.get("metadata", {}).get("report_dir")
+    root = Path(task_dir) if task_dir else Path(__file__).resolve().parents[2] / "reports"
+    return root / "md"
 
 
 def truncate_report_at_baseline_time(report_content: str, current_time_info: str) -> str:
@@ -165,7 +178,7 @@ def generate_report_with_finr1(model, tokenizer, prompt, max_new_tokens=5000):
 def get_model_choice():
     """获取模型选择，默认选择API"""
     # 可以通过环境变量控制模型选择
-    model_choice = os.getenv("USE_LOCAL_MODEL", "api").lower()
+    model_choice = current_summary_mode()
     return model_choice
 
 
@@ -224,20 +237,8 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
     value_analysis = available.get("value_analysis", "Not available")
     news_analysis = available.get("news_analysis", "Not available")
 
-    # 处理各个分析的错误信息
-    errors = []
-    if "fundamental_analysis_error" in current_data:
-        errors.append(
-            f"Fundamental Analysis Error: {current_data['fundamental_analysis_error']}")
-    if "technical_analysis_error" in current_data:
-        errors.append(
-            f"Technical Analysis Error: {current_data['technical_analysis_error']}")
-    if "value_analysis_error" in current_data:
-        errors.append(
-            f"Value Analysis Error: {current_data['value_analysis_error']}")
-    if "news_analysis_error" in current_data:
-        errors.append(
-            f"News Analysis Error: {current_data['news_analysis_error']}")
+    unavailable = [name for name in ("fundamental", "technical", "value", "news")
+                   if f"{name}_analysis" not in available]
 
     # 基本股票标识信息
     stock_code = current_data.get("stock_code", "Unknown Stock")
@@ -361,8 +362,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         NEWS ANALYSIS:
         {news_analysis}
         
-        {"ANALYSIS ISSUES:" if errors else ""}
-        {". ".join(errors) if errors else ""}
+        {"UNAVAILABLE ANALYSES: " + ", ".join(unavailable) if unavailable else ""}
         
         IMPORTANT: Your output MUST be in valid Markdown format with proper headings, bullet points, 
         and formatting. Include a clear recommendation section at the end.
@@ -518,14 +518,13 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
             clean_stock_code = stock_code.replace("sh.", "").replace("sz.", "")
             safe_file_prefix = f"report_{safe_company_name}_{clean_stock_code}"
 
-        report_filename = f"{safe_file_prefix}_{timestamp}.md"
+        filename = report_filename(safe_file_prefix, timestamp)
 
         # 确保reports/md目录存在
-        reports_dir = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)))), "reports", "md")
+        reports_dir = report_directory(state)
         os.makedirs(reports_dir, exist_ok=True)
 
-        report_path = os.path.join(reports_dir, report_filename)
+        report_path = os.path.join(reports_dir, filename)
 
         # 将报告写入文件
         with open(report_path, "w", encoding="utf-8") as f:
@@ -577,7 +576,7 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
         error_report = f"""
         # Analysis Report for {company_name} ({stock_code})
         
-        **Error encountered during report generation**: {e}
+        **Report generation failed.** See the local service log for details.
         
         ## Available Analysis Fragments:
         
@@ -614,14 +613,13 @@ async def summary_agent(state: AgentState) -> Dict[str, Any]:
             clean_stock_code = stock_code.replace("sh.", "").replace("sz.", "")
             safe_file_prefix = f"error_report_{safe_company_name}_{clean_stock_code}"
 
-        report_filename = f"{safe_file_prefix}_{timestamp}.md"
+        filename = report_filename(safe_file_prefix, timestamp)
 
         # 确保reports/md目录存在
-        reports_dir = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)))), "reports", "md")
+        reports_dir = report_directory(state)
         os.makedirs(reports_dir, exist_ok=True)
 
-        report_path = os.path.join(reports_dir, report_filename)
+        report_path = os.path.join(reports_dir, filename)
 
         # 将错误报告写入文件
         with open(report_path, "w", encoding="utf-8") as f:

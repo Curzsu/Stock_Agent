@@ -2442,6 +2442,12 @@
     // API 基址（同源相对路径，本地与部署均可直接使用；
     // 放在脚本最顶部，避免在 const 声明前被 loadHistory() 等调用触发 TDZ 报错）
     const API_BASE = '/api';
+    async function getSessionWriteHeaders() {
+      const response = await fetch(`${API_BASE}/session`);
+      const session = await response.json();
+      if (!response.ok) throw new Error(session.detail || '请登录');
+      return { 'X-CSRF-Token': session.csrf_token };
+    }
 
     // 每次刷新都回到页面顶部：关闭浏览器的滚动位置恢复，并强制归零。
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -3272,9 +3278,9 @@
           card.style.opacity = '1';
 
           const isRunning = item.status === 'running' || item.status === 'pending';
-          const isError = item.status === 'error';
+          const isError = ['error', 'interrupted'].includes(item.status);
           const statusLabel = isRunning ? '<span style="color:#c9a227;">● 分析中</span>'
-            : isError ? '<span style="color:#e74c3c;">● 出错</span>'
+            : isError ? `<span style="color:#e74c3c;">● ${item.status === 'interrupted' ? '已中断' : '出错'}</span>`
             : '<span style="color:#27ae60;">● 已完成</span>';
 
           card.innerHTML = `
@@ -3411,7 +3417,7 @@
           pollAnalysisStatus();
           return;
         }
-        if (statusData && statusData.status === 'error') {
+        if (statusData && ['error', 'interrupted'].includes(statusData.status)) {
           const partialRes = await fetch(`${API_BASE}/analysis/${analysisId}/partial`);
           if (viewVersion !== _analysisViewVersion) return;
           if (partialRes.ok) {
@@ -3483,6 +3489,7 @@
         try {
           const res = await fetch(`${API_BASE}/history/${targetId}`, {
             method: 'DELETE',
+            headers: await getSessionWriteHeaders(),
           });
           const data = await res.json().catch(() => ({}));
 
@@ -3739,18 +3746,26 @@
       }, 2500);
     }
 
+    let pendingAnalysisSubmission = null;
+
     async function startRealAnalysis(query) {
       const viewVersion = _analysisViewVersion;
       currentQuery = query;
       try {
+        const submission = pendingAnalysisSubmission?.query === query
+          ? pendingAnalysisSubmission : { query, key: crypto.randomUUID() };
+        pendingAnalysisSubmission = submission;
+        const csrfHeaders = await getSessionWriteHeaders();
+        if (viewVersion !== _analysisViewVersion) return;
         // Start analysis
         const response = await fetch(`${API_BASE}/analyze`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': submission.key, ...csrfHeaders },
           body: JSON.stringify({ query })
         });
 
         const data = await response.json();
+        if (response.ok && data.analysis_id && pendingAnalysisSubmission === submission) pendingAnalysisSubmission = null;
         if (viewVersion !== _analysisViewVersion) return;
         if (!response.ok || !data.analysis_id) throw new Error(data.detail || '启动分析失败');
         currentAnalysisId = data.analysis_id;
@@ -3802,8 +3817,11 @@
       const analysisId = currentAnalysisId;
       const viewVersion = _analysisViewVersion;
       try {
+        const csrfHeaders = await getSessionWriteHeaders();
+        if (viewVersion !== _analysisViewVersion) return;
         const response = await fetch(`${API_BASE}/analysis/${analysisId}/retry/${agentKey}`, {
           method: 'POST',
+          headers: csrfHeaders,
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
@@ -3842,7 +3860,7 @@
     // 处理一次轮询返回的状态（Worker 消息 / 前台补轮询共用）
     function handlePollStatus(status) {
       if (!status) return;
-      const isTerminal = status.status === 'error'
+      const isTerminal = ['error', 'interrupted'].includes(status.status)
         || (['completed', 'degraded'].includes(status.status)
           && !window.FinexWorkbench.hasRunningAgents(status));
       // 前端兜底：超过 30 分钟仍未进入终态则停止并提示，避免无限转圈
@@ -3869,7 +3887,7 @@
         stopBackgroundPolling();
         clearInterval(elapsedInterval);
         loadCompletedReport(status);
-      } else if (status.status === 'error') {
+      } else if (['error', 'interrupted'].includes(status.status)) {
         stopBackgroundPolling();
         clearInterval(elapsedInterval);
         workbench.renderError(status.error || '分析出错，请稍后重试。');
@@ -3992,7 +4010,7 @@
                 const res = await fetch(base + '/status/' + __id);
                 const status = await res.json();
                 self.postMessage({ type: 'status', status });
-                if (status.status === 'completed' || status.status === 'degraded' || status.status === 'error') {
+                if (['completed', 'degraded', 'error', 'interrupted'].includes(status.status)) {
                   if (__timer) { clearInterval(__timer); __timer = null; }
                 }
               } catch (err) { /* 瞬时错误，继续重试 */ }

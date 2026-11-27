@@ -1,0 +1,39 @@
+@font-face {
+  font-family: "FINEX Round";
+  src: url("../../../assets/fonts/FINEXRound-Regular.woff") format("woff");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  --warm-bg: #f8f6f1;
+  --gold: #c9a227;
+  --wb-paper: #e7ddcc;
+  --wb-paper-raised: rgba(250, 245, 236, .84);
+  --wb-ink: #2b241b;
+  --wb-muted: #74695b;
+  --wb-gold: #806127;
+  --wb-line: #b6a78e;
+  --wb-red: #9b4d43;
+  --wb-green: #496f5c;
+  --wb-blue: #687a82;
+  --wb-sans: "DM Sans", "FINEX Round", "YouYuan", sans-serif;
+  font-family: var(--wb-sans);
+  color: var(--wb-ink);
+  background: var(--warm-bg);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  min-height: 100vh;
+  margin: 0;
+}
+
+a {
+  color: var(--wb-green);
+  text-underline-offset: 0.2em;
+}
+
+:is(button, a):focus-visible { outline: 2px solid var(--wb-gold); outline-offset: 3px; }

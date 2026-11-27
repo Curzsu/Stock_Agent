@@ -1,0 +1,16 @@
+.button {
+  min-height: 2.25rem;
+  padding: .35rem .7rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--wb-muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.button[aria-pressed="true"] {
+  border-color: var(--wb-line);
+  color: var(--wb-ink);
+  background: var(--wb-paper-raised);
+}

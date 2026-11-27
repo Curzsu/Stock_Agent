@@ -61,6 +61,16 @@ class TestExecutiveSummary(unittest.TestCase):
 
 
 class TestSummaryGeneration(unittest.TestCase):
+    def test_separate_reports_keep_distinct_safe_filenames_for_same_stock_and_time(self):
+        from src.agents.summary_agent import report_filename
+
+        filenames = [report_filename("report_../示例公司_600000", "20261122_120000_000000") for _ in range(2)]
+        self.assertEqual(len(set(filenames)), 2)
+        for name in filenames:
+            self.assertNotIn("/", name)
+            self.assertNotIn("\\", name)
+            self.assertTrue(name.endswith(".md"))
+
     def test_overlong_summary_is_rewritten_once_with_original_evidence(self):
         from src.utils.summary_generation import generate_summary
         invalid = REPORT.replace("现有材料支持经营改善", "证据" * 600)

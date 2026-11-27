@@ -65,4 +65,4 @@ echo
 echo "Starting FINEX server on http://localhost:8100"
 echo "Press Ctrl+C to stop the server"
 echo
-python -m uvicorn backend.server:app --host 0.0.0.0 --port 8100 --reload
+python -m uvicorn backend.server:app --host 127.0.0.1 --port 8100 --reload
